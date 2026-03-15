@@ -11,6 +11,33 @@ import type { WhatsAppGroup, NewMessage, SessionStatus } from '../types.js';
 import { insertMessage } from '../db/messages.js';
 import { logPrefix } from '../utils.js';
 
+/**
+ * Parses a raw Baileys message into a NewMessage, or returns null if the
+ * message should be ignored (non-group, non-text, etc.).
+ * Exported as a pure function so it can be unit-tested without Baileys.
+ */
+export function parseIncomingMessage(
+  accountId: number,
+  msg: BaileysEventMap['messages.upsert']['messages'][number],
+): NewMessage | null {
+  const remoteJid = msg.key.remoteJid;
+  if (!remoteJid?.endsWith('@g.us')) return null;
+
+  const content = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
+  if (!content) return null;
+
+  const timestamp =
+    typeof msg.messageTimestamp === 'number' ? new Date(msg.messageTimestamp * 1000) : new Date();
+
+  return {
+    accountId,
+    groupId: remoteJid,
+    timestamp,
+    sender: msg.pushName ?? 'unknown',
+    content,
+  };
+}
+
 export interface SessionCallbacks {
   onQRCode: (qr: string) => void;
   onStatusChange: (status: SessionStatus) => void;
@@ -123,24 +150,8 @@ export class WhatsAppSession {
   }
 
   private handleIncomingMessage(msg: BaileysEventMap['messages.upsert']['messages'][number]): void {
-    const remoteJid = msg.key.remoteJid;
-    if (!remoteJid?.endsWith('@g.us')) return; // groups only
-
-    const content = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
-
-    if (!content) return; // skip non-text messages
-
-    const timestamp =
-      typeof msg.messageTimestamp === 'number' ? new Date(msg.messageTimestamp * 1000) : new Date();
-
-    const newMessage: NewMessage = {
-      accountId: this.accountId,
-      groupId: remoteJid,
-      timestamp,
-      sender: msg.pushName ?? 'unknown',
-      content,
-    };
-
+    const newMessage = parseIncomingMessage(this.accountId, msg);
+    if (!newMessage) return;
     insertMessage(this.db, newMessage);
     this.callbacks.onMessage(newMessage);
   }

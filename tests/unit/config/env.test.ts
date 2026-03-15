@@ -1,11 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
-
-/**
- * Tests for the env schema logic without calling loadEnv() directly,
- * because loadEnv() calls process.exit() on validation failure.
- * We test the schema behaviour in isolation.
- */
+import { loadEnv } from '../../../src/config/env.js';
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
@@ -56,5 +51,43 @@ describe('env schema', () => {
     expect(result.CONFIG_PATH).toBe('/mnt/nas/config');
     expect(result.DATA_PATH).toBe('/mnt/nas/data');
     expect(result.SESSIONS_PATH).toBe('/mnt/nas/sessions');
+  });
+});
+
+describe('loadEnv', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    vi.restoreAllMocks();
+  });
+
+  it('should return parsed env with defaults when no vars are set', () => {
+    delete process.env['PORT'];
+    delete process.env['CONFIG_PATH'];
+    delete process.env['DATA_PATH'];
+    delete process.env['SESSIONS_PATH'];
+    delete process.env['LOG_LEVEL'];
+    const env = loadEnv();
+    expect(env.PORT).toBe(3000);
+    expect(env.CONFIG_PATH).toBe('./config');
+  });
+
+  it('should pick up PORT from process.env', () => {
+    process.env['PORT'] = '4321';
+    const env = loadEnv();
+    expect(env.PORT).toBe(4321);
+  });
+
+  it('should call process.exit(1) when LOG_LEVEL is invalid', () => {
+    process.env['LOG_LEVEL'] = 'verbose';
+    vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    expect(() => loadEnv()).toThrow('process.exit called');
   });
 });

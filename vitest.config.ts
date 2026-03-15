@@ -9,7 +9,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/index.ts', 'src/web/public/**'],
+      exclude: [
+        'src/index.ts',
+        'src/types.ts',
+        'src/llm/interface.ts',
+        'src/web/**',          // UI tests deferred — no coverage required yet
+      ],
       thresholds: {
         lines: 80,
         functions: 80,

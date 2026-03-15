@@ -1,5 +1,147 @@
-import { describe, it, expect } from 'vitest';
-import { buildLLMInput } from '../../../src/scheduler/runner.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { buildLLMInput, runProfile } from '../../../src/scheduler/runner.js';
+import { createTestDatabase, seedAccount, buildMessage } from '../../fixtures/index.js';
+import { insertMessage } from '../../../src/db/messages.js';
+import type { Database } from 'better-sqlite3';
+import type { ScanProfile } from '../../../src/types.js';
+
+function makeProfile(overrides: Partial<ScanProfile> = {}): ScanProfile {
+  return {
+    id: 'daily',
+    name: 'Daily Summary',
+    prompt: 'Summarise the group activity.',
+    cron: '0 9 * * *',
+    isEnabled: true,
+    ...overrides,
+  };
+}
+
+let db: Database;
+beforeEach(() => {
+  db = createTestDatabase();
+  seedAccount(db);
+});
+
+describe('runProfile', () => {
+  it('should call llm.complete and invoke onResult with the output', async () => {
+    const llm = { complete: vi.fn().mockResolvedValue('LLM summary') };
+    const onResult = vi.fn();
+
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult,
+    });
+
+    expect(llm.complete).toHaveBeenCalledOnce();
+    expect(onResult).toHaveBeenCalledWith('LLM summary', 'daily');
+  });
+
+  it('should include the profile prompt in the LLM input', async () => {
+    const llm = { complete: vi.fn().mockResolvedValue('output') };
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile({ prompt: 'Custom prompt' }),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+    const [prompt] = llm.complete.mock.calls[0] as [string];
+    expect(prompt).toContain('Custom prompt');
+  });
+
+  it('should include new messages in the LLM input', async () => {
+    insertMessage(db, buildMessage({ content: 'Elevator broken', groupId: 'group@g.us' }));
+    const llm = { complete: vi.fn().mockResolvedValue('output') };
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+    const [prompt] = llm.complete.mock.calls[0] as [string];
+    expect(prompt).toContain('Elevator broken');
+  });
+
+  it('should persist the scan result to the database', async () => {
+    const llm = { complete: vi.fn().mockResolvedValue('Stored summary') };
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+    const row = db.prepare('SELECT * FROM scan_results WHERE profile_id = ?').get('daily') as
+      | { output: string }
+      | undefined;
+    expect(row?.output).toBe('Stored summary');
+  });
+
+  it('should mark messages as processed after a successful run', async () => {
+    const msgId = insertMessage(db, buildMessage({ groupId: 'group@g.us' }));
+    const llm = { complete: vi.fn().mockResolvedValue('output') };
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+    const row = db.prepare('SELECT processed_by FROM messages WHERE id = ?').get(msgId) as {
+      processed_by: string | null;
+    };
+    expect(row.processed_by).toBe('daily');
+  });
+
+  it('should throw a wrapped error when llm.complete rejects', async () => {
+    const llm = { complete: vi.fn().mockRejectedValue(new Error('timeout')) };
+    await expect(
+      runProfile({
+        db,
+        llm,
+        profile: makeProfile(),
+        accountId: 1,
+        groupId: 'group@g.us',
+        onResult: vi.fn(),
+      }),
+    ).rejects.toThrow('Profile run failed');
+  });
+
+  it('should use the previous scan result as context for the next run', async () => {
+    const llm = { complete: vi.fn().mockResolvedValue('First summary') };
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+
+    llm.complete.mockResolvedValue('Second summary');
+    insertMessage(db, buildMessage({ groupId: 'group@g.us', timestamp: new Date() }));
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      onResult: vi.fn(),
+    });
+
+    const [secondPrompt] = llm.complete.mock.calls[1] as [string];
+    expect(secondPrompt).toContain('First summary');
+  });
+});
 
 describe('buildLLMInput', () => {
   it('should include previous summary when one exists', () => {
