@@ -1,7 +1,7 @@
 version: 2
 
 updates:
-  # npm dependencies
+  # npm dependencies — paused until codebase stabilizes
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -10,23 +10,20 @@ updates:
       time: '09:00'
     open-pull-requests-limit: 5
     groups:
-      # vitest and its coverage plugin must be bumped together — they have exact peer deps
+      # vitest and its coverage plugin must be bumped together — exact peer deps
       vitest:
         patterns:
           - 'vitest'
           - '@vitest/*'
-      # Batch all @types/* updates into a single PR
       type-definitions:
         patterns:
           - '@types/*'
-      # Batch ESLint ecosystem updates together
       eslint:
         patterns:
           - 'eslint*'
           - '@eslint/*'
           - 'typescript-eslint'
 
-  # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
