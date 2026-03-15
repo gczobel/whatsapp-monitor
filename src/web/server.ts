@@ -1,0 +1,112 @@
+import express from 'express';
+import { createServer } from 'node:http';
+import { WebSocketServer, WebSocket } from 'ws';
+import type { Database } from 'better-sqlite3';
+import type { WhatsAppSession } from '../whatsapp/session.js';
+import type { AppConfig, ProfilesConfig } from '../config/app.js';
+import { createAccountRouter } from './routes/accounts.js';
+import { createConfigRouter } from './routes/config.js';
+import { saveAppConfig, saveProfilesConfig } from '../config/app.js';
+import { logPrefix } from '../utils.js';
+
+export interface ServerOptions {
+  port: number;
+  configPath: string;
+  db: Database;
+  session: WhatsAppSession;
+  appConfig: AppConfig;
+  profilesConfig: ProfilesConfig;
+}
+
+export interface WebServer {
+  start(): void;
+  broadcastToAccount(accountId: number, message: WsMessage): void;
+}
+
+export interface WsMessage {
+  type: 'qr' | 'status' | 'alert';
+  data: string;
+}
+
+export function createWebServer(options: ServerOptions): WebServer {
+  const app = express();
+  const httpServer = createServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
+
+  // Track open WebSocket connections per account for targeted broadcasts.
+  const clientsByAccount = new Map<number, Set<WebSocket>>();
+
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+
+  // Serve static assets (if any custom CSS/JS beyond CDN).
+  app.use('/public', express.static(new URL('./public', import.meta.url).pathname));
+
+  // Redirect root to the default account dashboard (F7.5: single account today).
+  app.get('/', (_req, res) => res.redirect('/accounts/1/'));
+
+  // Account-scoped routes.
+  app.use(
+    '/accounts/:accountId',
+    createAccountRouter({
+      db: options.db,
+      session: options.session,
+      profilesConfig: options.profilesConfig,
+      saveProfilesConfig: () => saveProfilesConfig(options.configPath, options.profilesConfig),
+    }),
+  );
+
+  // Global config routes.
+  app.use(
+    '/config',
+    createConfigRouter({
+      appConfig: options.appConfig,
+      saveAppConfig: (updated) => {
+        options.appConfig = updated;
+        saveAppConfig(options.configPath, updated);
+      },
+    }),
+  );
+
+  // WebSocket — one connection per browser tab, scoped to an account.
+  wss.on('connection', (ws, req) => {
+    const match = /\/ws\/(\d+)/.exec(req.url ?? '');
+    const accountId = match ? Number(match[1]) : null;
+
+    if (accountId === null) {
+      ws.close();
+      return;
+    }
+
+    if (!clientsByAccount.has(accountId)) {
+      clientsByAccount.set(accountId, new Set());
+    }
+    clientsByAccount.get(accountId)!.add(ws);
+
+    ws.on('close', () => {
+      clientsByAccount.get(accountId)?.delete(ws);
+    });
+  });
+
+  function broadcastToAccount(accountId: number, message: WsMessage): void {
+    const clients = clientsByAccount.get(accountId);
+    if (!clients) return;
+    const payload = JSON.stringify(message);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+      }
+    }
+  }
+
+  function start(): void {
+    httpServer.listen(options.port, () => {
+      console.info(
+        logPrefix('web', 'INFO'),
+        `WhatsApp Monitor running → http://localhost:${options.port}`,
+      );
+    });
+  }
+
+  return { start, broadcastToAccount };
+}

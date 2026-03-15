@@ -1,0 +1,24 @@
+{
+  "accounts": [
+    {
+      "id": 1,
+      "displayName": "Gustavo",
+      "profiles": [
+        {
+          "id": "urgent-scan",
+          "name": "Urgent Scan",
+          "prompt": "You are monitoring an Israeli building WhatsApp group (Hebrew). Review the messages and identify anything urgent: water/power/fire/security/elevator. Return a short summary or 'nothing urgent'.",
+          "cron": "*/10 * * * *",
+          "enabled": true
+        },
+        {
+          "id": "daily-digest",
+          "name": "Daily Digest",
+          "prompt": "Summarize today's building group messages in Hebrew into 3-5 bullet points in English. Focus on: noise schedules, meetings, important notices. Ignore chatter.",
+          "cron": "0 8,18 * * *",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

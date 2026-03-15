@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+# ── Builder stage ─────────────────────────────────────────────────────────────
+FROM node:22.14-alpine AS builder
+
+WORKDIR /build
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json tsconfig.build.json ./
+COPY src/ ./src/
+
+RUN npm run build
+
+# ── Runner stage ──────────────────────────────────────────────────────────────
+FROM node:22.14-alpine AS runner
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# Production dependencies only
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Compiled output
+COPY --from=builder /build/dist ./dist
+
+# Runtime directories — these are expected to be mounted as Docker volumes.
+# Creating them here ensures they exist if the volumes are not mounted.
+RUN mkdir -p config data sessions && chown -R appuser:appgroup /app
+
+USER appuser
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+
+CMD ["node", "dist/index.js"]

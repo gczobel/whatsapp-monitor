@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+
+# Runtime data — mounted as Docker volumes
+data/
+sessions/
+
+# Config contains secrets (API keys) — users manage this manually
+config/app.json
+
+# Profiles are user data but can be committed if desired
+# config/profiles.json
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/settings.json

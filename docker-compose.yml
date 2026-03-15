@@ -1,0 +1,13 @@
+services:
+  whatsapp-monitor:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./sessions:/app/sessions
+    environment:
+      - PORT=3000
+      - LOG_LEVEL=info
+    restart: unless-stopped

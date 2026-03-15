@@ -1,0 +1,59 @@
+{
+  "name": "whatsapp-monitor",
+  "version": "0.1.0",
+  "description": "Self-hosted WhatsApp group monitoring application",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "start": "node dist/index.js",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
+    "format": "prettier --write src tests",
+    "format:check": "prettier --check src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "dev:check": "vitest --reporter=verbose",
+    "lint:watch": "nodemon --watch src --watch tests --ext ts --exec 'npm run lint'",
+    "check:circular": "madge --circular --extensions ts --ts-config tsconfig.json src/",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "better-sqlite3": "^11.9.1",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "ws": "^8.18.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.13.10",
+    "@types/node-cron": "^3.0.11",
+    "@types/ws": "^8.5.14",
+    "@vitest/coverage-v8": "^3.0.9",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.1.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0",
+    "madge": "^8.0.0",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1",
+    "vitest": "^3.0.9"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "tests/**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}
