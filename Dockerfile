@@ -20,9 +20,12 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-# Production dependencies only
+# Production dependencies only.
+# Drop the `prepare` script before installing — it runs `husky` which is a
+# dev dependency and is not present in the production install, causing a
+# "command not found" failure (exit code 127).
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm pkg delete scripts.prepare && npm ci --omit=dev && npm cache clean --force
 
 # Compiled output
 COPY --from=builder /build/dist ./dist
