@@ -10,6 +10,11 @@ updates:
       time: '09:00'
     open-pull-requests-limit: 5
     groups:
+      # vitest and its coverage plugin must be bumped together — they have exact peer deps
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
       # Batch all @types/* updates into a single PR
       type-definitions:
         patterns:
