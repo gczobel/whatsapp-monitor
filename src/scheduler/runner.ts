@@ -76,7 +76,7 @@ export async function runProfile(options: RunProfileOptions): Promise<void> {
       `LLM call failed for profile "${profile.name}":`,
       error,
     );
-    throw new Error(`Profile run failed for "${profile.name}": ${String(error)}`);
+    throw new Error(`Profile run failed for "${profile.name}": ${String(error)}`, { cause: error });
   }
 
   const messageIds = newMessages.map((m) => m.id);

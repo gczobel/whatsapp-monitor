@@ -29,7 +29,9 @@ export async function deliverResult(
       `Failed to deliver result for profile "${profile.name}":`,
       error,
     );
-    throw new Error(`Delivery failed for profile "${profile.name}": ${String(error)}`);
+    throw new Error(`Delivery failed for profile "${profile.name}": ${String(error)}`, {
+      cause: error,
+    });
   }
 }
 
