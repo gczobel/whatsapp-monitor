@@ -1,6 +1,8 @@
 import { join } from 'node:path';
+import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
+  fetchLatestWaWebVersion,
   DisconnectReason,
   type WASocket,
   type ConnectionState,
@@ -62,6 +64,7 @@ export class WhatsAppSession {
   private readonly callbacks: SessionCallbacks;
   private status: SessionStatus = 'unlinked';
   private socket: WASocket | null = null;
+  private lastQRCode: string | null = null;
 
   constructor(accountId: number, sessionsPath: string, db: Database, callbacks: SessionCallbacks) {
     this.accountId = accountId;
@@ -74,34 +77,59 @@ export class WhatsAppSession {
     return this.status;
   }
 
+  getLastQR(): string | null {
+    return this.lastQRCode;
+  }
+
   async connect(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
     this.setStatus('connecting');
 
-    this.socket = makeWASocket({ auth: state, printQRInTerminal: false });
+    // Fetch the current WhatsApp Web version at connection time.
+    // Without this, Baileys uses a hardcoded version that WhatsApp may reject
+    // with statusCode 405 (Connection Failure) after protocol updates.
+    const { version } = await fetchLatestWaWebVersion({});
+    console.info(logPrefix('whatsapp', 'INFO'), `Using WA version: ${version.join('.')}`);
+
+    this.socket = makeWASocket({ auth: state, version, printQRInTerminal: false });
 
     this.socket.ev.on('connection.update', (update: Partial<ConnectionState>) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (typeof qr === 'string') {
-        this.callbacks.onQRCode(qr);
+        // Convert raw Baileys QR string to a PNG data URL server-side so the
+        // browser can render it with a plain <img> tag — no client-side library needed.
+        void QRCode.toDataURL(qr, { margin: 1, width: 220 }).then((dataURL) => {
+          console.info(logPrefix('whatsapp', 'INFO'), 'QR code generated — waiting for scan');
+          this.lastQRCode = dataURL;
+          this.callbacks.onQRCode(dataURL);
+        });
       }
 
       if (connection === 'close') {
-        const statusCode = (
-          lastDisconnect?.error as { output?: { statusCode?: number } } | undefined
-        )?.output?.statusCode;
+        const error = lastDisconnect?.error as
+          | { output?: { statusCode?: number }; message?: string }
+          | undefined;
+        const statusCode = error?.output?.statusCode;
+        const errorMessage = error?.message ?? 'unknown';
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+
+        console.info(
+          logPrefix('whatsapp', 'INFO'),
+          `Connection closed — statusCode: ${String(statusCode)}, error: ${errorMessage}`,
+        );
+
         this.setStatus(isLoggedOut ? 'unlinked' : 'expired');
 
         if (!isLoggedOut) {
-          console.info(logPrefix('whatsapp', 'INFO'), 'Connection closed — reconnecting');
+          console.info(logPrefix('whatsapp', 'INFO'), 'Reconnecting…');
           void this.connect();
         }
       }
 
       if (connection === 'open') {
+        this.lastQRCode = null;
         this.setStatus('linked');
         console.info(logPrefix('whatsapp', 'INFO'), `Session linked for account ${this.accountId}`);
       }

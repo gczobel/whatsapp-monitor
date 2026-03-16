@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { WhatsAppSession } from '../../../src/whatsapp/session.js';
+import type { SessionCallbacks } from '../../../src/whatsapp/session.js';
 import { createTestDatabase, seedAccount } from '../../fixtures/index.js';
 
 // ── Baileys mock ──────────────────────────────────────────────────────────────
@@ -30,7 +31,15 @@ vi.mock('@whiskeysockets/baileys', () => ({
     state: {},
     saveCreds: mockSaveCreds,
   }),
+  fetchLatestWaWebVersion: vi.fn().mockResolvedValue({ version: [2, 3000, 0] }),
   DisconnectReason: { loggedOut: 401 },
+}));
+
+// qrcode converts the raw Baileys QR string to a PNG data URL server-side.
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,mockQRdata'),
+  },
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -46,7 +55,7 @@ function makeCallbacks(): Callbacks {
 }
 
 async function makeConnectedSession(db: Database, callbacks: Callbacks): Promise<WhatsAppSession> {
-  const session = new WhatsAppSession(1, '/tmp', db, callbacks);
+  const session = new WhatsAppSession(1, '/tmp', db, callbacks as SessionCallbacks);
   await session.connect();
   return session;
 }
@@ -89,11 +98,29 @@ describe('WhatsAppSession.connect()', () => {
     expect(callbacks.onStatusChange).toHaveBeenCalledWith('linked');
   });
 
-  it('should call onQRCode when a QR string arrives', async () => {
+  it('should call onQRCode with a PNG data URL when a QR string arrives', async () => {
     const callbacks = makeCallbacks();
     await makeConnectedSession(db, callbacks);
     fire('connection.update', { qr: 'test-qr-string' });
-    expect(callbacks.onQRCode).toHaveBeenCalledWith('test-qr-string');
+    // toDataURL is async; flush microtasks before asserting
+    await Promise.resolve();
+    expect(callbacks.onQRCode).toHaveBeenCalledWith('data:image/png;base64,mockQRdata');
+  });
+
+  it('should cache the data URL so getLastQR returns it after a qr event', async () => {
+    const session = await makeConnectedSession(db, makeCallbacks());
+    expect(session.getLastQR()).toBeNull();
+    fire('connection.update', { qr: 'test-qr-string' });
+    await Promise.resolve();
+    expect(session.getLastQR()).toBe('data:image/png;base64,mockQRdata');
+  });
+
+  it('should clear the cached QR when connection opens', async () => {
+    const session = await makeConnectedSession(db, makeCallbacks());
+    fire('connection.update', { qr: 'test-qr-string' });
+    await Promise.resolve();
+    fire('connection.update', { connection: 'open' });
+    expect(session.getLastQR()).toBeNull();
   });
 
   it('should not call onQRCode when qr field is absent', async () => {

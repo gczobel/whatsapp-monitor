@@ -33,7 +33,7 @@ export function createSetupRouter(options: AccountRoutesOptions): Router {
                  Scan this QR code with your WhatsApp app: <strong>Settings → Linked Devices → Link a Device</strong>.
                </p>
                <div id="qr-container" class="flex items-center justify-center bg-slate-50 rounded-lg p-4 min-h-[220px]">
-                 <canvas id="qr-canvas"></canvas>
+                 <img id="qr-image" src="" alt="WhatsApp QR code" style="display:none" width="220" height="220" />
                  <p id="qr-waiting" class="text-sm text-slate-400 animate-pulse">Waiting for QR code…</p>
                </div>
                <p class="text-xs text-slate-400 mt-3 text-center">
@@ -45,22 +45,28 @@ export function createSetupRouter(options: AccountRoutesOptions): Router {
       <script>
         (function () {
           const ws = new WebSocket('ws://' + location.host + '/ws/${accountId}');
-          const canvas = document.getElementById('qr-canvas');
-          const waiting = document.getElementById('qr-waiting');
+
+          // Close when HTMX swaps the page away so we don't accumulate stale connections.
+          document.addEventListener('htmx:beforeSwap', function () { ws.close(); }, { once: true });
 
           ws.onmessage = function (event) {
             try {
               const msg = JSON.parse(event.data);
-              if (msg.type === 'qr' && canvas) {
-                waiting && (waiting.style.display = 'none');
-                QRCode.toCanvas(canvas, msg.data, { width: 220, margin: 1 }, function (err) {
-                  if (err) console.error('QR render error', err);
-                });
+              if (msg.type === 'qr') {
+                const img = document.getElementById('qr-image');
+                const waiting = document.getElementById('qr-waiting');
+                if (img) {
+                  img.src = msg.data;
+                  img.style.display = 'block';
+                }
+                if (waiting) waiting.style.display = 'none';
               }
               if (msg.type === 'status' && msg.data === 'linked') {
                 location.reload();
               }
-            } catch (_) {}
+            } catch (err) {
+              console.error('[WA monitor] WS error:', err);
+            }
           };
         })();
       </script>`;

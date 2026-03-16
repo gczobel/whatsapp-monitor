@@ -82,21 +82,53 @@ export function createWebServer(options: ServerOptions): WebServer {
       clientsByAccount.set(accountId, new Set());
     }
     clientsByAccount.get(accountId)!.add(ws);
+    const clientCount = clientsByAccount.get(accountId)!.size;
+    console.info(
+      logPrefix('web', 'INFO'),
+      `WS client connected — account ${accountId}, total clients: ${clientCount}`,
+    );
+
+    // Replay current state so late-connecting clients (e.g. page load after QR
+    // was already broadcast) don't get stuck waiting for the next event.
+    const currentStatus = options.session.getStatus();
+    ws.send(JSON.stringify({ type: 'status', data: currentStatus }));
+    console.info(logPrefix('web', 'INFO'), `WS replay — status: ${currentStatus}`);
+
+    const pendingQR = options.session.getLastQR();
+    if (pendingQR !== null) {
+      ws.send(JSON.stringify({ type: 'qr', data: pendingQR }));
+      console.info(logPrefix('web', 'INFO'), `WS replay — QR sent (${pendingQR.length} chars)`);
+    } else {
+      console.info(logPrefix('web', 'INFO'), 'WS replay — no QR cached yet');
+    }
 
     ws.on('close', () => {
       clientsByAccount.get(accountId)?.delete(ws);
+      console.info(logPrefix('web', 'INFO'), `WS client disconnected — account ${accountId}`);
     });
   });
 
   function broadcastToAccount(accountId: number, message: WsMessage): void {
     const clients = clientsByAccount.get(accountId);
-    if (!clients) return;
+    if (!clients || clients.size === 0) {
+      console.info(
+        logPrefix('web', 'INFO'),
+        `broadcast ${message.type} — no WS clients connected for account ${accountId}`,
+      );
+      return;
+    }
     const payload = JSON.stringify(message);
+    let sent = 0;
     for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(payload);
+        sent++;
       }
     }
+    console.info(
+      logPrefix('web', 'INFO'),
+      `broadcast ${message.type} — sent to ${sent}/${clients.size} clients`,
+    );
   }
 
   function start(): void {
