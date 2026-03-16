@@ -83,10 +83,20 @@ beforeEach(() => {
 // ── connect() ─────────────────────────────────────────────────────────────────
 
 describe('WhatsAppSession.connect()', () => {
-  it('should set status to connecting immediately', async () => {
+  it('should not set status to connecting until a QR code arrives', async () => {
+    // 'connecting' only fires when a QR is shown — not on every connect() call.
+    // This prevents the setup page from showing QR-mode during silent reconnects.
     const callbacks = makeCallbacks();
     const session = new WhatsAppSession(1, '/tmp', db, callbacks);
     await session.connect();
+    expect(callbacks.onStatusChange).not.toHaveBeenCalledWith('connecting');
+  });
+
+  it('should set status to connecting when a QR event fires', async () => {
+    const callbacks = makeCallbacks();
+    await makeConnectedSession(db, callbacks);
+    fire('connection.update', { qr: 'test-qr-string' });
+    await Promise.resolve();
     expect(callbacks.onStatusChange).toHaveBeenCalledWith('connecting');
   });
 
@@ -142,20 +152,29 @@ describe('WhatsAppSession.connect()', () => {
     expect(mockSocket.ev.on.mock.calls.length).toBe(callsBefore);
   });
 
-  it('should set status to expired on unexpected close', async () => {
+  it('should not change status on unexpected close (silent reconnect)', async () => {
+    // Non-logout closes trigger a silent reconnect without changing status,
+    // preventing the setup page from briefly showing QR-mode between reconnects.
     const callbacks = makeCallbacks();
     const session = await makeConnectedSession(db, callbacks);
+    fire('connection.update', { connection: 'open' }); // establish 'linked'
+    const callsBefore = callbacks.onStatusChange.mock.calls.length;
     fire('connection.update', {
       connection: 'close',
       lastDisconnect: { error: { output: { statusCode: 503 } } },
     });
-    expect(session.getStatus()).toBe('expired');
+    expect(session.getStatus()).toBe('linked');
+    expect(callbacks.onStatusChange.mock.calls.length).toBe(callsBefore);
   });
 
-  it('should set status to expired when lastDisconnect has no error', async () => {
-    const session = await makeConnectedSession(db, makeCallbacks());
+  it('should not change status when lastDisconnect has no error', async () => {
+    const callbacks = makeCallbacks();
+    const session = await makeConnectedSession(db, callbacks);
+    fire('connection.update', { connection: 'open' }); // establish 'linked'
+    const callsBefore = callbacks.onStatusChange.mock.calls.length;
     fire('connection.update', { connection: 'close' });
-    expect(session.getStatus()).toBe('expired');
+    expect(session.getStatus()).toBe('linked');
+    expect(callbacks.onStatusChange.mock.calls.length).toBe(callsBefore);
   });
 
   it('should call saveCreds when creds.update fires', async () => {

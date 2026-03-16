@@ -38,38 +38,38 @@ export function createSetupRouter(options: AccountRoutesOptions): Router {
                </div>
                <p class="text-xs text-slate-400 mt-3 text-center">
                  The QR code refreshes automatically. Keep this page open.
-               </p>`
+               </p>
+               <script>
+                 (function () {
+                   const ws = new WebSocket('ws://' + location.host + '/ws/${accountId}');
+
+                   // Close when HTMX swaps the page away so we don't accumulate stale connections.
+                   document.addEventListener('htmx:beforeSwap', function () { ws.close(); }, { once: true });
+
+                   ws.onmessage = function (event) {
+                     try {
+                       const msg = JSON.parse(event.data);
+                       if (msg.type === 'qr') {
+                         const img = document.getElementById('qr-image');
+                         const waiting = document.getElementById('qr-waiting');
+                         if (img) { img.src = msg.data; img.style.display = 'block'; }
+                         if (waiting) waiting.style.display = 'none';
+                       }
+                       if (msg.type === 'status' && msg.data === 'linked') {
+                         ws.close();
+                         // Fetch the updated page via HTMX instead of location.reload().
+                         // reload() races against transient non-linked status windows and loops;
+                         // htmx.ajax returns the linked UI (no script) so the loop cannot restart.
+                         htmx.ajax('GET', location.href, { target: 'body', swap: 'outerHTML' });
+                       }
+                     } catch (err) {
+                       console.error('[WA monitor] WS error:', err);
+                     }
+                   };
+                 })();
+               </script>`
         }
-      </div>
-
-      <script>
-        (function () {
-          const ws = new WebSocket('ws://' + location.host + '/ws/${accountId}');
-
-          // Close when HTMX swaps the page away so we don't accumulate stale connections.
-          document.addEventListener('htmx:beforeSwap', function () { ws.close(); }, { once: true });
-
-          ws.onmessage = function (event) {
-            try {
-              const msg = JSON.parse(event.data);
-              if (msg.type === 'qr') {
-                const img = document.getElementById('qr-image');
-                const waiting = document.getElementById('qr-waiting');
-                if (img) {
-                  img.src = msg.data;
-                  img.style.display = 'block';
-                }
-                if (waiting) waiting.style.display = 'none';
-              }
-              if (msg.type === 'status' && msg.data === 'linked') {
-                location.reload();
-              }
-            } catch (err) {
-              console.error('[WA monitor] WS error:', err);
-            }
-          };
-        })();
-      </script>`;
+      </div>`;
 
     res.send(
       renderLayout({

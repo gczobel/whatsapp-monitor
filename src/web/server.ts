@@ -16,6 +16,7 @@ export interface ServerOptions {
   session: WhatsAppSession;
   appConfig: AppConfig;
   profilesConfig: ProfilesConfig;
+  triggerProfile: (profileIdx: number) => Promise<void>;
 }
 
 export interface WebServer {
@@ -53,6 +54,7 @@ export function createWebServer(options: ServerOptions): WebServer {
       session: options.session,
       profilesConfig: options.profilesConfig,
       saveProfilesConfig: () => saveProfilesConfig(options.configPath, options.profilesConfig),
+      triggerProfile: options.triggerProfile,
     }),
   );
 

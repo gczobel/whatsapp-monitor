@@ -27,6 +27,8 @@ const scanProfileSchema = z.object({
 const accountProfilesSchema = z.object({
   id: z.number().int().positive(),
   displayName: z.string().min(1),
+  // International format without +, e.g. "972501234567". Used to deliver results to Saved Messages.
+  phoneNumber: z.string().min(1),
   profiles: z.array(scanProfileSchema),
 });
 

@@ -9,6 +9,8 @@ export interface AccountRoutesOptions {
   session: WhatsAppSession;
   profilesConfig: ProfilesConfig;
   saveProfilesConfig: () => void;
+  /** Immediately runs a profile by its index in the account's profiles array. */
+  triggerProfile: (profileIdx: number) => Promise<void>;
 }
 
 /**

@@ -5,6 +5,7 @@ import { upsertAccount, getAccount } from './db/accounts.js';
 import { createLLMClient } from './llm/factory.js';
 import { WhatsAppSession } from './whatsapp/session.js';
 import { startScheduler } from './scheduler/index.js';
+import { runProfile } from './scheduler/runner.js';
 import { deliverResult } from './delivery/sender.js';
 import { createWebServer } from './web/server.js';
 import { logPrefix } from './utils.js';
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
     upsertAccount(db, {
       id: accountConfig.id,
       displayName: accountConfig.displayName,
-      phoneNumber: '',
+      phoneNumber: accountConfig.phoneNumber,
     });
   }
 
@@ -54,6 +55,44 @@ async function main(): Promise<void> {
     undefined;
 
   let stopScheduler: (() => void) | null = null;
+
+  // Handles a completed profile run: broadcasts the alert and delivers via WhatsApp.
+  // Defined here so it can be reused by both the scheduler and the "Run now" trigger.
+  const handleResult = (output: string, profileId: string): void => {
+    const profileConfig = profilesConfig.accounts
+      .find((a) => a.id === primaryAccount.id)
+      ?.profiles.find((p) => p.id === profileId);
+    if (!profileConfig) return;
+
+    broadcast(primaryAccount.id, 'alert', output);
+
+    const profile: ScanProfile = { ...profileConfig, isEnabled: profileConfig.enabled };
+    deliverResult(session, primaryAccount.phoneNumber, profile, output).catch((error: unknown) => {
+      console.error(logPrefix('index', 'ERROR'), 'Delivery error:', error);
+    });
+  };
+
+  // Immediately runs a profile by its index in the account's profiles array.
+  // Used by the "Run now" button in the web UI.
+  const triggerProfile = async (profileIdx: number): Promise<void> => {
+    const groupId = getAccount(db, primaryAccount.id)?.monitoredGroupId ?? null;
+    if (groupId === null) throw new Error('No group selected');
+
+    const profileConfig = profilesConfig.accounts.find((a) => a.id === primaryAccount.id)?.profiles[
+      profileIdx
+    ];
+    if (!profileConfig) throw new Error(`Profile index ${profileIdx} not found`);
+
+    const profile: ScanProfile = { ...profileConfig, isEnabled: profileConfig.enabled };
+    await runProfile({
+      db,
+      llm,
+      accountId: primaryAccount.id,
+      groupId,
+      profile,
+      onResult: handleResult,
+    });
+  };
 
   const onStatusChange = (status: SessionStatus): void => {
     broadcast(primaryAccount.id, 'status', status);
@@ -86,18 +125,7 @@ async function main(): Promise<void> {
         llm,
         accountId: primaryAccount.id,
         groupId,
-        onResult: (output, profileId): void => {
-          const profile = profiles.find((p) => p.id === profileId);
-          if (!profile) return;
-
-          broadcast(primaryAccount.id, 'alert', output);
-
-          deliverResult(session, primaryAccount.displayName, profile, output).catch(
-            (error: unknown) => {
-              console.error(logPrefix('index', 'ERROR'), 'Delivery error:', error);
-            },
-          );
-        },
+        onResult: handleResult,
       });
     }
 
@@ -126,6 +154,7 @@ async function main(): Promise<void> {
     session,
     appConfig,
     profilesConfig,
+    triggerProfile,
   });
 
   // Wire the broadcast function now that webServer exists.

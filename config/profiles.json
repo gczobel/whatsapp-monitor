@@ -3,11 +3,12 @@
     {
       "id": 1,
       "displayName": "Gustavo",
+      "phoneNumber": "972505948708",
       "profiles": [
         {
           "id": "urgent-scan",
           "name": "Urgent Scan",
-          "prompt": "You are monitoring an Israeli building WhatsApp group (Hebrew). Review the messages and identify anything urgent: water/power/fire/security/elevator. Return a short summary or 'nothing urgent'.",
+          "prompt": "You are monitoring an Israeli building WhatsApp group (Hebrew). Review the messages and identify anything urgent: water/power/fire/security/elevator/thief . Return a short summary or 'nothing urgent'.",
           "cron": "*/10 * * * *",
           "enabled": true
         },

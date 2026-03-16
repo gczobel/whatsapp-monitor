@@ -79,6 +79,8 @@ export async function runProfile(options: RunProfileOptions): Promise<void> {
     throw new Error(`Profile run failed for "${profile.name}": ${String(error)}`, { cause: error });
   }
 
+  console.info(logPrefix('scheduler', 'INFO'), `Profile "${profile.name}" result:\n${output}`);
+
   const messageIds = newMessages.map((m) => m.id);
 
   insertScanResult(db, {

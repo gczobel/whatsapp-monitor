@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { AccountRoutesOptions } from './shared.js';
 import { parseAccountId, toggleProfile } from './shared.js';
+import { getAccount } from '../../../db/accounts.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
 import { escapeHtml } from '../../../utils.js';
 
@@ -12,39 +13,118 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
     const accountId = parseAccountId(req);
     const accountConfig = profilesConfig.accounts.find((a) => a.id === accountId);
     const profiles = accountConfig?.profiles ?? [];
+    const account = getAccount(options.db, accountId);
+    const groupName = account?.monitoredGroupName ?? null;
 
-    const profileForms = profiles
+    const groupBanner = `
+      <div class="flex items-center gap-2 mb-6 text-sm text-slate-600">
+        <span>All profiles monitor:</span>
+        ${
+          groupName
+            ? `<strong class="text-slate-900">${escapeHtml(groupName)}</strong>`
+            : `<span class="text-amber-700 font-medium">No group selected</span>`
+        }
+        <a href="/accounts/${accountId}/group" class="ml-1 text-green-600 hover:underline">Change →</a>
+      </div>`;
+
+    const profileCards = profiles
       .map(
         (p, idx) => `
-        <div class="bg-white rounded-lg border border-slate-200 p-5">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-semibold text-slate-900">${escapeHtml(p.name)}</h3>
-            <div class="flex items-center gap-2">
-              ${
-                p.enabled
-                  ? `<form method="POST" action="/accounts/${accountId}/profiles/${idx}/disable">
-                       <button type="submit" class="text-xs text-slate-600 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50">Disable</button>
-                     </form>`
-                  : `<form method="POST" action="/accounts/${accountId}/profiles/${idx}/enable">
-                       <button type="submit" class="text-xs text-green-600 border border-green-300 rounded px-2 py-1 hover:bg-green-50">Enable</button>
-                     </form>`
-              }
-              <form method="POST" action="/accounts/${accountId}/profiles/${idx}/delete"
-                    onsubmit="return confirm('Delete profile \\'${escapeHtml(p.name)}\\'?')">
-                <button type="submit" class="text-xs text-red-600 border border-red-300 rounded px-2 py-1 hover:bg-red-50">Delete</button>
-              </form>
+        <div class="bg-white rounded-lg border border-slate-200 p-5" x-data="{ editing: false }">
+
+          <!-- ── View mode ── -->
+          <div x-show="!editing">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-semibold text-slate-900">${escapeHtml(p.name)}</h3>
+              <div class="flex items-center gap-2">
+                <!-- Run Now -->
+                <form method="POST" action="/accounts/${accountId}/profiles/${idx}/run">
+                  <button type="submit"
+                          class="text-xs text-blue-600 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50 transition-colors">
+                    ▶ Run now
+                  </button>
+                </form>
+                <!-- Edit -->
+                <button type="button" @click="editing = true"
+                        class="text-xs text-slate-600 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50 transition-colors">
+                  Edit
+                </button>
+                <!-- Enable / Disable -->
+                ${
+                  p.enabled
+                    ? `<form method="POST" action="/accounts/${accountId}/profiles/${idx}/disable">
+                         <button type="submit" class="text-xs text-slate-600 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50">Disable</button>
+                       </form>`
+                    : `<form method="POST" action="/accounts/${accountId}/profiles/${idx}/enable">
+                         <button type="submit" class="text-xs text-green-600 border border-green-300 rounded px-2 py-1 hover:bg-green-50">Enable</button>
+                       </form>`
+                }
+                <!-- Delete -->
+                <form method="POST" action="/accounts/${accountId}/profiles/${idx}/delete"
+                      onsubmit="return confirm('Delete profile \\'${escapeHtml(p.name)}\\'?')">
+                  <button type="submit" class="text-xs text-red-600 border border-red-300 rounded px-2 py-1 hover:bg-red-50">Delete</button>
+                </form>
+              </div>
             </div>
+            <p class="text-xs text-slate-500 mb-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code></p>
+            <p class="text-sm text-slate-600 mt-2 line-clamp-2">${escapeHtml(p.prompt)}</p>
           </div>
-          <p class="text-xs text-slate-500 mb-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code></p>
-          <p class="text-sm text-slate-600 mt-2 line-clamp-2">${escapeHtml(p.prompt)}</p>
+
+          <!-- ── Edit mode ── -->
+          <div x-show="editing" x-cloak>
+            <h3 class="font-semibold text-slate-900 mb-4">Edit Profile</h3>
+            <form method="POST" action="/accounts/${accountId}/profiles/${idx}/edit" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input type="text" name="name" required value="${escapeHtml(p.name)}"
+                       class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Prompt</label>
+                <textarea name="prompt" rows="4" required
+                          class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">${escapeHtml(p.prompt)}</textarea>
+              </div>
+              <div x-data="cronBuilder('${escapeHtml(p.cron)}')" class="space-y-2">
+                <label class="block text-sm font-medium text-slate-700">Schedule</label>
+                <div class="flex flex-wrap gap-2">
+                  <select x-model="preset" @change="applyPreset()"
+                          class="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <option value="custom">Custom cron</option>
+                    <option value="every10">Every 10 minutes</option>
+                    <option value="every30">Every 30 minutes</option>
+                    <option value="hourly">Hourly</option>
+                    <option value="daily8">Daily at 08:00</option>
+                    <option value="daily18">Daily at 18:00</option>
+                    <option value="weekly">Weekly (Monday 08:00)</option>
+                  </select>
+                  <input type="text" name="cron" x-model="cron" required
+                         class="flex-1 min-w-[160px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                         placeholder="*/10 * * * *" />
+                </div>
+                <p class="text-xs text-slate-400">Standard 5-field cron expression (minute hour day month weekday)</p>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit"
+                        class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition-colors">
+                  Save
+                </button>
+                <button type="button" @click="editing = false"
+                        class="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+
         </div>`,
       )
       .join('\n');
 
     const content = `
       ${renderPageHeader('Scan Profiles', 'Define what the LLM should look for and when to run.')}
+      ${groupBanner}
 
-      ${profiles.length > 0 ? `<div class="space-y-4 mb-8">${profileForms}</div>` : '<p class="text-sm text-slate-500 mb-8">No profiles yet.</p>'}
+      ${profiles.length > 0 ? `<div class="space-y-4 mb-8">${profileCards}</div>` : '<p class="text-sm text-slate-500 mb-8">No profiles yet.</p>'}
 
       <div class="bg-white rounded-lg border border-slate-200 p-5">
         <h3 class="font-semibold text-slate-900 mb-4">Add Profile</h3>
@@ -87,19 +167,21 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
       </div>
 
       <script>
-        function cronBuilder() {
+        function cronBuilder(initialCron) {
+          const presets = {
+            every10:  '*/10 * * * *',
+            every30:  '*/30 * * * *',
+            hourly:   '0 * * * *',
+            daily8:   '0 8 * * *',
+            daily18:  '0 18 * * *',
+            weekly:   '0 8 * * 1',
+          };
+          const init = initialCron ?? '*/10 * * * *';
+          const matched = Object.entries(presets).find(([, v]) => v === init);
           return {
-            preset: 'custom',
-            cron: '*/10 * * * *',
-            presets: {
-              custom:   null,
-              every10:  '*/10 * * * *',
-              every30:  '*/30 * * * *',
-              hourly:   '0 * * * *',
-              daily8:   '0 8 * * *',
-              daily18:  '0 18 * * *',
-              weekly:   '0 8 * * 1',
-            },
+            preset: matched ? matched[0] : 'custom',
+            cron: init,
+            presets: Object.assign({ custom: null }, presets),
             applyPreset() {
               const v = this.presets[this.preset];
               if (v) this.cron = v;
@@ -142,6 +224,42 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
     res.redirect(`/accounts/${accountId}/profiles`);
   });
 
+  router.post('/profiles/:idx/edit', (req, res) => {
+    const accountId = parseAccountId(req);
+    const idx = Number((req.params as Record<string, string>)['idx']);
+    const { name, prompt, cron } = req.body as { name: string; prompt: string; cron: string };
+
+    if (typeof name !== 'string' || typeof prompt !== 'string' || typeof cron !== 'string') {
+      res.status(400).send(renderError('Missing required fields'));
+      return;
+    }
+
+    const accountConfig = profilesConfig.accounts.find((a) => a.id === accountId);
+    const profile = accountConfig?.profiles[idx];
+    if (!profile) {
+      res.status(404).send(renderError('Profile not found'));
+      return;
+    }
+
+    profile.name = name;
+    profile.prompt = prompt;
+    profile.cron = cron;
+    options.saveProfilesConfig();
+    res.redirect(`/accounts/${accountId}/profiles`);
+  });
+
+  router.post('/profiles/:idx/run', (req, res) => {
+    const accountId = parseAccountId(req);
+    const idx = Number((req.params as Record<string, string>)['idx']);
+
+    options.triggerProfile(idx).catch((error: unknown) => {
+      console.error('[web/profiles] Run now failed:', error);
+    });
+
+    // Redirect immediately — the run happens asynchronously in the background.
+    res.redirect(`/accounts/${accountId}/profiles`);
+  });
+
   router.post('/profiles/:idx/enable', (req, res) => {
     toggleProfile(req, res, options, true);
   });
@@ -152,7 +270,7 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
 
   router.post('/profiles/:idx/delete', (req, res) => {
     const accountId = parseAccountId(req);
-    const idx = Number(req.params['idx']);
+    const idx = Number((req.params as Record<string, string>)['idx']);
     const accountConfig = profilesConfig.accounts.find((a) => a.id === accountId);
     if (accountConfig && idx >= 0 && idx < accountConfig.profiles.length) {
       accountConfig.profiles.splice(idx, 1);

@@ -31,6 +31,7 @@ const validProfilesJson = JSON.stringify({
     {
       id: 1,
       displayName: 'Test User',
+      phoneNumber: '972501234567',
       profiles: [
         {
           id: 'daily',
@@ -108,7 +109,9 @@ describe('loadProfilesConfig', () => {
   it('should reject a profile with missing required fields', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
-        accounts: [{ id: 1, displayName: 'X', profiles: [{ id: 'p1' }] }],
+        accounts: [
+          { id: 1, displayName: 'X', phoneNumber: '972501234567', profiles: [{ id: 'p1' }] },
+        ],
       }),
     );
     expect(() => loadProfilesConfig('/config')).toThrow('process.exit called');
