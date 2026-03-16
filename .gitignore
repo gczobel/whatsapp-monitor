@@ -18,3 +18,4 @@ config/app.json
 *.swo
 .idea/
 .vscode/settings.json
+geminikey

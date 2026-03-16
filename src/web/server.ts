@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Database } from 'better-sqlite3';
 import type { WhatsAppSession } from '../whatsapp/session.js';
 import type { AppConfig, ProfilesConfig } from '../config/app.js';
-import { createAccountRouter } from './routes/accounts.js';
+import { createAccountRouter } from './routes/accounts/index.js';
 import { createConfigRouter } from './routes/config.js';
 import { saveAppConfig, saveProfilesConfig } from '../config/app.js';
 import { logPrefix } from '../utils.js';

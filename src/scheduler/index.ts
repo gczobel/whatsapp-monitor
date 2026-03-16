@@ -38,6 +38,7 @@ export function startScheduler(profiles: ScanProfile[], options: SchedulerOption
 
   return () => {
     tasks.forEach((task) => {
+      // node-cron v4: stop() returns Promise<void>; void discards it to satisfy no-floating-promises
       void task.stop();
     });
   };

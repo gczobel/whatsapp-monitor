@@ -1,14 +1,14 @@
 import { loadEnv } from './config/env.js';
 import { loadAppConfig, loadProfilesConfig } from './config/app.js';
 import { openDatabase } from './db/index.js';
-import { upsertAccount } from './db/accounts.js';
+import { upsertAccount, getAccount } from './db/accounts.js';
 import { createLLMClient } from './llm/factory.js';
 import { WhatsAppSession } from './whatsapp/session.js';
 import { startScheduler } from './scheduler/index.js';
 import { deliverResult } from './delivery/sender.js';
 import { createWebServer } from './web/server.js';
 import { logPrefix } from './utils.js';
-import type { ScanProfile } from './types.js';
+import type { ScanProfile, SessionStatus } from './types.js';
 
 async function main(): Promise<void> {
   // ── 1. Load configuration ──────────────────────────────────────────────────
@@ -55,67 +55,63 @@ async function main(): Promise<void> {
 
   let stopScheduler: (() => void) | null = null;
 
+  const onStatusChange = (status: SessionStatus): void => {
+    broadcast(primaryAccount.id, 'status', status);
+
+    if (status === 'linked') {
+      const groupId = getAccount(db, primaryAccount.id)?.monitoredGroupId ?? null;
+
+      if (groupId === null) {
+        console.warn(
+          logPrefix('index', 'WARN'),
+          'No group selected — scheduler will not start until a group is chosen.',
+        );
+        return;
+      }
+
+      const profiles: ScanProfile[] = (
+        profilesConfig.accounts.find((a) => a.id === primaryAccount.id)?.profiles ?? []
+      )
+        .filter((p) => p.enabled)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          prompt: p.prompt,
+          cron: p.cron,
+          isEnabled: p.enabled,
+        }));
+
+      stopScheduler = startScheduler(profiles, {
+        db,
+        llm,
+        accountId: primaryAccount.id,
+        groupId,
+        onResult: (output, profileId): void => {
+          const profile = profiles.find((p) => p.id === profileId);
+          if (!profile) return;
+
+          broadcast(primaryAccount.id, 'alert', output);
+
+          deliverResult(session, primaryAccount.displayName, profile, output).catch(
+            (error: unknown) => {
+              console.error(logPrefix('index', 'ERROR'), 'Delivery error:', error);
+            },
+          );
+        },
+      });
+    }
+
+    if (status === 'unlinked' && stopScheduler !== null) {
+      stopScheduler();
+      stopScheduler = null;
+    }
+  };
+
   const session = new WhatsAppSession(primaryAccount.id, env.SESSIONS_PATH, db, {
     onQRCode: (qr): void => {
       broadcast(primaryAccount.id, 'qr', qr);
     },
-    onStatusChange: (status): void => {
-      broadcast(primaryAccount.id, 'status', status);
-
-      if (status === 'linked') {
-        const groupId =
-          db
-            .prepare<
-              [number],
-              { monitored_group_id: string | null }
-            >('SELECT monitored_group_id FROM accounts WHERE id = ?')
-            .get(primaryAccount.id)?.monitored_group_id ?? null;
-
-        if (groupId === null) {
-          console.warn(
-            logPrefix('index', 'WARN'),
-            'No group selected — scheduler will not start until a group is chosen.',
-          );
-          return;
-        }
-
-        const profiles: ScanProfile[] = (
-          profilesConfig.accounts.find((a) => a.id === primaryAccount.id)?.profiles ?? []
-        )
-          .filter((p) => p.enabled)
-          .map((p) => ({
-            id: p.id,
-            name: p.name,
-            prompt: p.prompt,
-            cron: p.cron,
-            isEnabled: p.enabled,
-          }));
-
-        stopScheduler = startScheduler(profiles, {
-          db,
-          llm,
-          accountId: primaryAccount.id,
-          groupId,
-          onResult: (output, profileId): void => {
-            const profile = profiles.find((p) => p.id === profileId);
-            if (!profile) return;
-
-            broadcast(primaryAccount.id, 'alert', output);
-
-            deliverResult(session, primaryAccount.displayName, profile, output).catch(
-              (error: unknown) => {
-                console.error(logPrefix('index', 'ERROR'), 'Delivery error:', error);
-              },
-            );
-          },
-        });
-      }
-
-      if (status === 'unlinked' && stopScheduler !== null) {
-        stopScheduler();
-        stopScheduler = null;
-      }
-    },
+    onStatusChange,
     onMessage: (): void => {
       // Messages are persisted in WhatsAppSession.handleIncomingMessage.
       // Real-time dashboard push can be added here later.
