@@ -30,6 +30,8 @@ function makeOptions(): SchedulerOptions {
     llm: { complete: vi.fn().mockResolvedValue('summary') },
     accountId: 1,
     groupId: 'group@g.us',
+    scanWindowDays: 14,
+    skipEmptyDelivery: true,
     onResult: vi.fn(),
   };
 }

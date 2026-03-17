@@ -10,6 +10,8 @@ export interface SchedulerOptions {
   llm: LLMClient;
   accountId: number;
   groupId: string;
+  scanWindowDays: number;
+  skipEmptyDelivery: boolean;
   onResult: (output: string, profileId: string) => void;
 }
 

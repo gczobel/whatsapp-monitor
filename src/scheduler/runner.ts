@@ -39,6 +39,8 @@ export interface RunProfileOptions {
   profile: ScanProfile;
   accountId: number;
   groupId: string;
+  scanWindowDays: number;
+  skipEmptyDelivery: boolean;
   onResult: (output: string, profileId: string) => void;
 }
 
@@ -51,11 +53,23 @@ export interface RunProfileOptions {
  * 5. Calls onResult so the caller can deliver the output.
  */
 export async function runProfile(options: RunProfileOptions): Promise<void> {
-  const { db, llm, profile, accountId, groupId, onResult } = options;
+  const { db, llm, profile, accountId, groupId, scanWindowDays, skipEmptyDelivery, onResult } =
+    options;
 
   const lastResult = getLastScanResult(db, accountId, profile.id);
-  const since = lastResult?.timestamp ?? new Date(0);
+  const windowFloor = new Date(Date.now() - scanWindowDays * 24 * 60 * 60 * 1000);
+  const lastRunAt = lastResult?.timestamp ?? new Date(0);
+  // Use the more recent of the two: don't look further back than the scan window.
+  const since = lastRunAt > windowFloor ? lastRunAt : windowFloor;
   const newMessages = getMessagesSince(db, accountId, groupId, since);
+
+  if (newMessages.length === 0 && skipEmptyDelivery) {
+    console.info(
+      logPrefix('scheduler', 'INFO'),
+      `Profile "${profile.name}" — no new messages, skipping`,
+    );
+    return;
+  }
 
   const prompt = `${profile.prompt}\n\n${buildLLMInput({
     previousSummary: lastResult?.output ?? null,

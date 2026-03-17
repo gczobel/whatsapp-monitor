@@ -66,6 +66,26 @@ export function createConfigRouter(options: ConfigRoutesOptions): Router {
                    placeholder="gemini-2.0-flash" />
           </div>
 
+          <hr class="border-slate-200" />
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Scan Window (days)</label>
+            <input type="number" name="scanWindowDays" required min="1" max="365"
+                   value="${appConfig.scanWindowDays}"
+                   class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+            <p class="text-xs text-slate-400 mt-1">Max age of messages included in a scan. Default: 14 days.</p>
+          </div>
+
+          <div>
+            <label class="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+              <input type="checkbox" name="skipEmptyDelivery" value="true"
+                     ${appConfig.skipEmptyDelivery ? 'checked' : ''}
+                     class="rounded border-slate-300 text-green-600 focus:ring-green-500" />
+              Skip delivery when no new messages
+            </label>
+            <p class="text-xs text-slate-400 mt-1">When enabled, scans with zero new messages are skipped entirely.</p>
+          </div>
+
           <div class="pt-2">
             <button type="submit"
                     class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition-colors">
@@ -92,6 +112,8 @@ export function createConfigRouter(options: ConfigRoutesOptions): Router {
     const endpoint = body['endpoint'];
     const apiKey = body['apiKey'];
     const model = body['model'];
+    const scanWindowDays = Number(body['scanWindowDays']);
+    const skipEmptyDelivery = body['skipEmptyDelivery'] === 'true';
 
     if (provider !== 'gemini' && provider !== 'openai' && provider !== 'ollama') {
       res.status(400).send('Invalid provider');
@@ -106,6 +128,8 @@ export function createConfigRouter(options: ConfigRoutesOptions): Router {
         model: model ?? options.appConfig.llm.model,
         ...(apiKey ? { apiKey } : {}),
       },
+      scanWindowDays: scanWindowDays > 0 ? scanWindowDays : options.appConfig.scanWindowDays,
+      skipEmptyDelivery,
     };
 
     options.saveAppConfig(updated);

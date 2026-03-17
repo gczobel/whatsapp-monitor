@@ -89,6 +89,8 @@ async function main(): Promise<void> {
       llm,
       accountId: primaryAccount.id,
       groupId,
+      scanWindowDays: appConfig.scanWindowDays,
+      skipEmptyDelivery: appConfig.skipEmptyDelivery,
       profile,
       onResult: handleResult,
     });
@@ -123,6 +125,8 @@ async function main(): Promise<void> {
       llm,
       accountId: primaryAccount.id,
       groupId,
+      scanWindowDays: appConfig.scanWindowDays,
+      skipEmptyDelivery: appConfig.skipEmptyDelivery,
       onResult: handleResult,
     });
   };

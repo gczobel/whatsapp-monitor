@@ -14,6 +14,8 @@ const llmConfigSchema = z.object({
 const appConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
   llm: llmConfigSchema,
+  scanWindowDays: z.number().int().positive().default(14),
+  skipEmptyDelivery: z.boolean().default(true),
 });
 
 const scanProfileSchema = z.object({

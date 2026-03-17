@@ -128,6 +128,8 @@ describe('saveAppConfig', () => {
         apiKey: 'key',
         model: 'gemini-pro',
       },
+      scanWindowDays: 14,
+      skipEmptyDelivery: true,
     };
     saveAppConfig('/config', config);
     expect(mockWriteFileSync).toHaveBeenCalledOnce();

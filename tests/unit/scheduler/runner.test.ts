@@ -33,6 +33,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult,
     });
 
@@ -48,6 +50,8 @@ describe('runProfile', () => {
       profile: makeProfile({ prompt: 'Custom prompt' }),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
     const [prompt] = llm.complete.mock.calls[0] as [string];
@@ -63,6 +67,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
     const [prompt] = llm.complete.mock.calls[0] as [string];
@@ -77,6 +83,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
     const row = db.prepare('SELECT * FROM scan_results WHERE profile_id = ?').get('daily') as
@@ -94,6 +102,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
     const row = db.prepare('SELECT processed_by FROM messages LIMIT 1').get() as {
@@ -103,6 +113,7 @@ describe('runProfile', () => {
   });
 
   it('should throw a wrapped error when llm.complete rejects', async () => {
+    insertMessage(db, buildMessage({ groupId: 'group@g.us' }));
     const llm = { complete: vi.fn().mockRejectedValue(new Error('timeout')) };
     await expect(
       runProfile({
@@ -111,6 +122,8 @@ describe('runProfile', () => {
         profile: makeProfile(),
         accountId: 1,
         groupId: 'group@g.us',
+        scanWindowDays: 365,
+        skipEmptyDelivery: false,
         onResult: vi.fn(),
       }),
     ).rejects.toThrow('Profile run failed');
@@ -124,6 +137,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
 
@@ -135,6 +150,8 @@ describe('runProfile', () => {
       profile: makeProfile(),
       accountId: 1,
       groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
       onResult: vi.fn(),
     });
 
