@@ -202,11 +202,28 @@ describe('WhatsAppSession.connect()', () => {
     expect(row.n).toBe(1);
   });
 
-  it('should ignore messages.upsert events that are not type notify', async () => {
+  it('should process messages.upsert events of type append (history on reconnect)', async () => {
     const callbacks = makeCallbacks();
     await makeConnectedSession(db, callbacks);
     fire('messages.upsert', {
       type: 'append',
+      messages: [
+        {
+          key: { remoteJid: '12345@g.us', id: 'id1', fromMe: false },
+          message: { conversation: 'Hello!' },
+          messageTimestamp: 1700000000,
+          pushName: 'Sender',
+        },
+      ],
+    });
+    expect(callbacks.onMessage).toHaveBeenCalledOnce();
+  });
+
+  it('should ignore messages.upsert events that are not notify or append', async () => {
+    const callbacks = makeCallbacks();
+    await makeConnectedSession(db, callbacks);
+    fire('messages.upsert', {
+      type: 'set',
       messages: [
         {
           key: { remoteJid: '12345@g.us', id: 'id1', fromMe: false },

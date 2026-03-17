@@ -94,40 +94,41 @@ async function main(): Promise<void> {
     });
   };
 
+  const startSchedulerIfReady = (): void => {
+    if (stopScheduler !== null) return; // already running
+
+    const groupId = getAccount(db, primaryAccount.id)?.monitoredGroupId ?? null;
+    if (groupId === null) {
+      console.warn(
+        logPrefix('index', 'WARN'),
+        'No group selected — scheduler will not start until a group is chosen.',
+      );
+      return;
+    }
+
+    const profiles: ScanProfile[] = (
+      profilesConfig.accounts.find((a) => a.id === primaryAccount.id)?.profiles ?? []
+    )
+      .filter((p) => p.enabled)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        prompt: p.prompt,
+        cron: p.cron,
+        isEnabled: p.enabled,
+      }));
+
+    stopScheduler = startScheduler(profiles, {
+      db,
+      llm,
+      accountId: primaryAccount.id,
+      groupId,
+      onResult: handleResult,
+    });
+  };
+
   const onStatusChange = (status: SessionStatus): void => {
     broadcast(primaryAccount.id, 'status', status);
-
-    if (status === 'linked') {
-      const groupId = getAccount(db, primaryAccount.id)?.monitoredGroupId ?? null;
-
-      if (groupId === null) {
-        console.warn(
-          logPrefix('index', 'WARN'),
-          'No group selected — scheduler will not start until a group is chosen.',
-        );
-        return;
-      }
-
-      const profiles: ScanProfile[] = (
-        profilesConfig.accounts.find((a) => a.id === primaryAccount.id)?.profiles ?? []
-      )
-        .filter((p) => p.enabled)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          prompt: p.prompt,
-          cron: p.cron,
-          isEnabled: p.enabled,
-        }));
-
-      stopScheduler = startScheduler(profiles, {
-        db,
-        llm,
-        accountId: primaryAccount.id,
-        groupId,
-        onResult: handleResult,
-      });
-    }
 
     if (status === 'unlinked' && stopScheduler !== null) {
       stopScheduler();
@@ -144,6 +145,7 @@ async function main(): Promise<void> {
       // Messages are persisted in WhatsAppSession.handleIncomingMessage.
       // Real-time dashboard push can be added here later.
     },
+    onHistorySyncComplete: startSchedulerIfReady,
   });
 
   // ── 6. Create and start web server ─────────────────────────────────────────
@@ -155,6 +157,7 @@ async function main(): Promise<void> {
     appConfig,
     profilesConfig,
     triggerProfile,
+    onGroupSelected: startSchedulerIfReady,
   });
 
   // Wire the broadcast function now that webServer exists.

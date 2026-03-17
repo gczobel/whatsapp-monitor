@@ -4,6 +4,7 @@ import type { AccountRoutesOptions } from './shared.js';
 import { parseAccountId, renderStatusBadge } from './shared.js';
 import { getAccount } from '../../../db/accounts.js';
 import { getLastScanResult } from '../../../db/results.js';
+import { getMessageCount } from '../../../db/messages.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
 import { escapeHtml, formatTimestamp } from '../../../utils.js';
 
@@ -18,6 +19,12 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
       res.status(404).send(renderError(`Account ${accountId} not found`));
       return;
     }
+
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const messageCount =
+      account.monitoredGroupId !== null
+        ? getMessageCount(db, accountId, account.monitoredGroupId, since24h)
+        : 0;
 
     const accountProfiles = profilesConfig.accounts.find((a) => a.id === accountId)?.profiles ?? [];
 
@@ -57,7 +64,7 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
     const content = `
       ${renderPageHeader('Dashboard')}
 
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
         <div class="bg-white rounded-lg border border-slate-200 p-4">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Session</p>
           <div class="mt-2">${statusBadge}</div>
@@ -71,6 +78,14 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
         <div class="bg-white rounded-lg border border-slate-200 p-4">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Active Profiles</p>
           <p class="mt-2 text-2xl font-bold text-slate-900">${profiles.filter((p) => p.isEnabled).length} <span class="text-sm font-normal text-slate-500">/ ${profiles.length}</span></p>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-4">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Messages (24h)</p>
+          <p class="mt-2 text-2xl font-bold text-slate-900">${messageCount}${
+            session.isSyncing()
+              ? ` <span class="text-sm font-normal text-blue-500 animate-pulse">syncing (${session.getSyncedMessageCount()})…</span>`
+              : ''
+          }</p>
         </div>
       </div>
 

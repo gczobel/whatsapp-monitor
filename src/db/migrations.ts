@@ -19,11 +19,15 @@ const migration001 = `
     id           INTEGER  PRIMARY KEY AUTOINCREMENT,
     account_id   INTEGER  NOT NULL REFERENCES accounts(id),
     group_id     TEXT     NOT NULL,
+    message_id   TEXT     NOT NULL,
     timestamp    DATETIME NOT NULL,
     sender       TEXT     NOT NULL,
     content      TEXT     NOT NULL,
     processed_by TEXT
   );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_unique
+    ON messages (account_id, group_id, message_id);
 
   CREATE INDEX IF NOT EXISTS idx_messages_account_group
     ON messages (account_id, group_id, timestamp);

@@ -17,6 +17,8 @@ export interface ServerOptions {
   appConfig: AppConfig;
   profilesConfig: ProfilesConfig;
   triggerProfile: (profileIdx: number) => Promise<void>;
+  /** Called when the user selects a monitored group, so the scheduler can start. */
+  onGroupSelected: () => void;
 }
 
 export interface WebServer {
@@ -55,6 +57,7 @@ export function createWebServer(options: ServerOptions): WebServer {
       profilesConfig: options.profilesConfig,
       saveProfilesConfig: () => saveProfilesConfig(options.configPath, options.profilesConfig),
       triggerProfile: options.triggerProfile,
+      onGroupSelected: options.onGroupSelected,
     }),
   );
 

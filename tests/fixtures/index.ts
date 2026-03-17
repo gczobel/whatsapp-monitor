@@ -42,10 +42,13 @@ export function seedAccount(db: Database, overrides: Partial<Account> = {}): Acc
 /**
  * Builds a minimal NewMessage, with sensible defaults for fields not specified.
  */
+let _msgCounter = 0;
+
 export function buildMessage(overrides: Partial<NewMessage> = {}): NewMessage {
   return {
     accountId: 1,
     groupId: 'test-group@g.us',
+    messageId: `msg-${++_msgCounter}`,
     timestamp: new Date('2026-01-01T10:00:00Z'),
     sender: 'Test Sender',
     content: 'Test message content',

@@ -86,7 +86,7 @@ describe('runProfile', () => {
   });
 
   it('should mark messages as processed after a successful run', async () => {
-    const msgId = insertMessage(db, buildMessage({ groupId: 'group@g.us' }));
+    insertMessage(db, buildMessage({ groupId: 'group@g.us' }));
     const llm = { complete: vi.fn().mockResolvedValue('output') };
     await runProfile({
       db,
@@ -96,7 +96,7 @@ describe('runProfile', () => {
       groupId: 'group@g.us',
       onResult: vi.fn(),
     });
-    const row = db.prepare('SELECT processed_by FROM messages WHERE id = ?').get(msgId) as {
+    const row = db.prepare('SELECT processed_by FROM messages LIMIT 1').get() as {
       processed_by: string | null;
     };
     expect(row.processed_by).toBe('daily');

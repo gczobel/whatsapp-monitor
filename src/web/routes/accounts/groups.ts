@@ -99,6 +99,7 @@ export function createGroupsRouter(options: AccountRoutesOptions): Router {
     }
 
     setMonitoredGroup(db, accountId, groupId, groupName);
+    options.onGroupSelected();
     res.redirect(`/accounts/${accountId}/`);
   });
 

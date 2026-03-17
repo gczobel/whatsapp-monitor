@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
@@ -11,6 +12,7 @@ import makeWASocket, {
 import type { Database } from 'better-sqlite3';
 import type { WhatsAppGroup, NewMessage, SessionStatus } from '../types.js';
 import { insertMessage } from '../db/messages.js';
+import { clearMonitoredGroup } from '../db/accounts.js';
 import { logPrefix } from '../utils.js';
 
 /**
@@ -25,15 +27,31 @@ export function parseIncomingMessage(
   const remoteJid = msg.key.remoteJid;
   if (!remoteJid?.endsWith('@g.us')) return null;
 
-  const content = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
+  let content = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
   if (!content) return null;
 
-  const timestamp =
-    typeof msg.messageTimestamp === 'number' ? new Date(msg.messageTimestamp * 1000) : new Date();
+  // Inline quoted context so the LLM understands reply chains.
+  // Baileys delivers quoted messages via extendedTextMessage.contextInfo on replies.
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  if (contextInfo?.quotedMessage) {
+    const quotedText =
+      contextInfo.quotedMessage.conversation ?? contextInfo.quotedMessage.extendedTextMessage?.text;
+    if (quotedText) {
+      // Strip the @s.whatsapp.net / @g.us suffix to get a readable sender identifier.
+      const quotedSender = contextInfo.participant?.replace(/@.*$/, '') ?? 'unknown';
+      content = `> ${quotedSender}: ${quotedText}\n${content}`;
+    }
+  }
+
+  // messageTimestamp can be a plain number or a protobuf Long object (history sync).
+  // Number() handles both; Long has .valueOf() that Number() uses.
+  const ts = Number(msg.messageTimestamp);
+  const timestamp = ts > 0 ? new Date(ts * 1000) : new Date();
 
   return {
     accountId,
     groupId: remoteJid,
+    messageId: msg.key.id ?? '',
     timestamp,
     sender: msg.pushName ?? 'unknown',
     content,
@@ -44,6 +62,8 @@ export interface SessionCallbacks {
   onQRCode: (qr: string) => void;
   onStatusChange: (status: SessionStatus) => void;
   onMessage: (message: NewMessage) => void;
+  /** Fired when history sync completes (isLatest: true) or after a 30s timeout on reconnect. */
+  onHistorySyncComplete?: () => void;
 }
 
 /**
@@ -65,6 +85,8 @@ export class WhatsAppSession {
   private status: SessionStatus = 'unlinked';
   private socket: WASocket | null = null;
   private lastQRCode: string | null = null;
+  private syncing = false;
+  private syncedMessageCount = 0;
   // Cached after first fetch — the WA protocol version is stable within a session.
   private waVersion: [number, number, number] | null = null;
 
@@ -83,7 +105,16 @@ export class WhatsAppSession {
     return this.lastQRCode;
   }
 
+  isSyncing(): boolean {
+    return this.syncing;
+  }
+
+  getSyncedMessageCount(): number {
+    return this.syncedMessageCount;
+  }
+
   async connect(): Promise<void> {
+    let historySyncDone = false;
     const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
     // Fetch the current WhatsApp Web version once per session lifetime.
@@ -98,7 +129,16 @@ export class WhatsAppSession {
     // Capture socket identity so stale-socket events can be ignored (see guards below).
     // Without this, a close event from an old socket triggers another connect() call,
     // causing a rapid reconnect cascade.
-    const sock = makeWASocket({ auth: state, version: this.waVersion, printQRInTerminal: false });
+    const sock = makeWASocket({
+      auth: state,
+      version: this.waVersion,
+      printQRInTerminal: false,
+      // Request history sync so the phone pushes message history on a fresh QR link.
+      // Only accept RECENT chunks to avoid pulling years of history.
+      // On reconnects this has no effect — WhatsApp skips the sync and Baileys times out.
+      syncFullHistory: true,
+      shouldSyncHistoryMessage: (msg) => Number(msg.syncType) === 3, // 3 = RECENT per proto enum
+    });
     this.socket = sock;
 
     sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
@@ -151,6 +191,24 @@ export class WhatsAppSession {
         this.lastQRCode = null;
         this.setStatus('linked');
         console.info(logPrefix('whatsapp', 'INFO'), `Session linked for account ${this.accountId}`);
+
+        // Fallback: if no history sync completes within 30s (e.g. reconnect, not fresh link),
+        // fire onHistorySyncComplete so the scheduler starts without waiting forever.
+        setTimeout(() => {
+          if (!historySyncDone) {
+            historySyncDone = true;
+            this.syncing = false;
+            if (this.syncedMessageCount > 0) {
+              console.info(
+                logPrefix('whatsapp', 'INFO'),
+                `History sync timed out — ${this.syncedMessageCount} messages captured so far, starting scheduler`,
+              );
+            } else {
+              console.info(logPrefix('whatsapp', 'INFO'), 'No history sync — starting normally');
+            }
+            this.callbacks.onHistorySyncComplete?.();
+          }
+        }, 30_000);
       }
     });
 
@@ -161,9 +219,49 @@ export class WhatsAppSession {
 
     sock.ev.on('messages.upsert', (event: BaileysEventMap['messages.upsert']) => {
       if (sock !== this.socket) return;
-      if (event.type !== 'notify') return;
+      // Handle both 'notify' (real-time) and 'append' (history sync on reconnect).
+      // 'append' delivers messages missed during downtime; INSERT OR IGNORE prevents duplicates.
+      if (event.type !== 'notify' && event.type !== 'append') return;
       for (const msg of event.messages) {
         this.handleIncomingMessage(msg);
+      }
+    });
+
+    // History sync: WhatsApp pushes recent message history from the phone on a fresh QR link.
+    // These arrive via messaging-history.set, not messages.upsert.
+    sock.ev.on('messaging-history.set', (event: BaileysEventMap['messaging-history.set']) => {
+      if (sock !== this.socket) return;
+
+      const total = event.messages.length;
+      let captured = 0;
+      for (const msg of event.messages) {
+        if (parseIncomingMessage(this.accountId, msg) !== null) captured++;
+        this.handleIncomingMessage(msg);
+      }
+      this.syncedMessageCount += captured;
+
+      console.info(
+        logPrefix('whatsapp', 'INFO'),
+        `History sync — batch: ${captured}/${total} captured, total: ${this.syncedMessageCount}, isLatest: ${String(event.isLatest)}`,
+      );
+
+      // Only track sync state until the first isLatest: true.
+      // Later batches (WhatsApp sometimes sends additional FULL chunks after RECENT)
+      // are still stored but don't hold up the scheduler or show "syncing" in the UI.
+      if (!historySyncDone) {
+        if (!this.syncing) {
+          this.syncing = true;
+          console.info(logPrefix('whatsapp', 'INFO'), 'History sync started');
+        }
+        if (event.isLatest) {
+          historySyncDone = true;
+          this.syncing = false;
+          console.info(
+            logPrefix('whatsapp', 'INFO'),
+            `History sync complete — ${this.syncedMessageCount} group text messages captured`,
+          );
+          this.callbacks.onHistorySyncComplete?.();
+        }
       }
     });
   }
@@ -193,6 +291,10 @@ export class WhatsAppSession {
       this.socket = null;
       await sock.logout();
     }
+    // Wipe session files so the next connect() starts fresh and generates a QR.
+    await rm(this.sessionDir, { recursive: true, force: true });
+    // Clear group selection — a different phone may not have the same groups.
+    clearMonitoredGroup(this.db, this.accountId);
     this.setStatus('unlinked');
   }
 

@@ -14,6 +14,7 @@ export interface Account {
 export interface NewMessage {
   accountId: number;
   groupId: string;
+  messageId: string;
   timestamp: Date;
   sender: string;
   content: string;

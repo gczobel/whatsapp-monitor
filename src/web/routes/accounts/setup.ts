@@ -88,6 +88,8 @@ export function createSetupRouter(options: AccountRoutesOptions): Router {
     } catch (error) {
       console.error('[web/accounts] Logout failed:', error);
     }
+    // Restart the connection so Baileys generates a fresh QR code for re-linking.
+    void session.connect();
     res.redirect(`/accounts/${accountId}/setup`);
   });
 

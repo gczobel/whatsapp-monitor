@@ -15,9 +15,10 @@ beforeEach(() => {
 });
 
 describe('insertMessage', () => {
-  it('should insert a message and return its id', () => {
-    const id = insertMessage(db, buildMessage());
-    expect(id).toBeGreaterThan(0);
+  it('should insert a message into the database', () => {
+    insertMessage(db, buildMessage());
+    const count = (db.prepare('SELECT COUNT(*) as n FROM messages').get() as { n: number }).n;
+    expect(count).toBe(1);
   });
 
   it('should persist all message fields', () => {
@@ -35,6 +36,14 @@ describe('insertMessage', () => {
     expect(row['sender']).toBe('Yossi');
     expect(row['content']).toBe('Water leak on floor 3');
     expect(row['processed_by']).toBeNull();
+  });
+
+  it('should silently ignore a duplicate message_id (INSERT OR IGNORE)', () => {
+    const msg = buildMessage({ messageId: 'dup-id' });
+    insertMessage(db, msg);
+    insertMessage(db, msg); // same messageId — should not throw or insert twice
+    const count = (db.prepare('SELECT COUNT(*) as n FROM messages').get() as { n: number }).n;
+    expect(count).toBe(1);
   });
 });
 
@@ -87,10 +96,13 @@ describe('getMessagesSince', () => {
 
 describe('markMessagesProcessed', () => {
   it('should set processed_by for the given message ids', () => {
-    const id1 = insertMessage(db, buildMessage({ content: 'Msg 1' }));
-    const id2 = insertMessage(db, buildMessage({ content: 'Msg 2' }));
+    insertMessage(db, buildMessage({ content: 'Msg 1' }));
+    insertMessage(db, buildMessage({ content: 'Msg 2' }));
+    const ids = (
+      db.prepare('SELECT id FROM messages ORDER BY id').all() as Array<{ id: number }>
+    ).map((r) => r.id);
 
-    markMessagesProcessed(db, [id1, id2], 'urgent-scan');
+    markMessagesProcessed(db, ids, 'urgent-scan');
 
     const rows = db.prepare('SELECT processed_by FROM messages').all() as Array<{
       processed_by: string | null;

@@ -15,12 +15,23 @@ function makeMsg(overrides: Partial<RawMsg> = {}): RawMsg {
   } as unknown as RawMsg;
 }
 
+// Deep-merge helper so nested overrides (e.g. key.id) don't wipe sibling fields.
+function makeMsgDeep(deep: Record<string, unknown>): RawMsg {
+  const base = makeMsg();
+  return {
+    ...base,
+    ...deep,
+    key: { ...(base.key as object), ...((deep['key'] as object) ?? {}) },
+  } as unknown as RawMsg;
+}
+
 describe('parseIncomingMessage', () => {
   it('should return a NewMessage for a valid group text message', () => {
     const result = parseIncomingMessage(1, makeMsg());
     expect(result).not.toBeNull();
     expect(result?.accountId).toBe(1);
     expect(result?.groupId).toBe('1234567890@g.us');
+    expect(result?.messageId).toBe('msg-id');
     expect(result?.content).toBe('Hello group');
     expect(result?.sender).toBe('Yossi');
   });
@@ -68,6 +79,35 @@ describe('parseIncomingMessage', () => {
     const after = Date.now();
     expect(result?.timestamp.getTime()).toBeGreaterThanOrEqual(before);
     expect(result?.timestamp.getTime()).toBeLessThanOrEqual(after);
+  });
+
+  it('should prepend quoted context when message is a reply', () => {
+    const msg = makeMsgDeep({
+      message: {
+        extendedTextMessage: {
+          text: 'Totally agree!',
+          contextInfo: {
+            quotedMessage: { conversation: 'We should fix the elevator' },
+            participant: '972501234567@s.whatsapp.net',
+          },
+        },
+      },
+    });
+    const result = parseIncomingMessage(1, msg);
+    expect(result?.content).toBe('> 972501234567: We should fix the elevator\nTotally agree!');
+  });
+
+  it('should not prepend quoted block when contextInfo has no quotedMessage', () => {
+    const msg = makeMsgDeep({
+      message: {
+        extendedTextMessage: {
+          text: 'Plain reply',
+          contextInfo: { participant: '972501234567@s.whatsapp.net' },
+        },
+      },
+    });
+    const result = parseIncomingMessage(1, msg);
+    expect(result?.content).toBe('Plain reply');
   });
 
   it('should use "unknown" as sender when pushName is absent', () => {
