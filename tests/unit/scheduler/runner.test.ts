@@ -223,4 +223,15 @@ describe('buildLLMInput', () => {
     });
     expect(result).not.toContain('Previous summary');
   });
+
+  it('should always include the non-text media disclaimer', () => {
+    const withMessages = buildLLMInput({
+      previousSummary: null,
+      newMessages: [{ sender: 'A', content: 'Hello', timestamp: new Date() }],
+    });
+    expect(withMessages).toContain('Images, audio, and documents are not analyzed');
+
+    const withoutMessages = buildLLMInput({ previousSummary: null, newMessages: [] });
+    expect(withoutMessages).toContain('Images, audio, and documents are not analyzed');
+  });
 });

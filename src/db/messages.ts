@@ -73,6 +73,18 @@ export function getMessageCount(
   return row?.n ?? 0;
 }
 
+export function getMessagesByIds(db: Database, ids: number[]): Message[] {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db
+    .prepare<number[], MessageRow>(
+      `SELECT id, account_id, group_id, message_id, timestamp, sender, content, processed_by
+       FROM messages WHERE id IN (${placeholders}) ORDER BY timestamp ASC`,
+    )
+    .all(...ids);
+  return rows.map(rowToMessage);
+}
+
 export function markMessagesProcessed(db: Database, messageIds: number[], profileId: string): void {
   if (messageIds.length === 0) return;
 

@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3';
 import {
   insertMessage,
   getMessagesSince,
+  getMessagesByIds,
   markMessagesProcessed,
 } from '../../../src/db/messages.js';
 import { createTestDatabase, seedAccount, buildMessage } from '../../fixtures/index.js';
@@ -91,6 +92,35 @@ describe('getMessagesSince', () => {
     const messages = getMessagesSince(db, 1, 'group-a@g.us', new Date(0));
     expect(messages).toHaveLength(1);
     expect(messages[0]?.content).toBe('Group A');
+  });
+});
+
+describe('getMessagesByIds', () => {
+  it('should return messages matching the given ids', () => {
+    insertMessage(db, buildMessage({ content: 'Alpha' }));
+    insertMessage(db, buildMessage({ content: 'Beta' }));
+    const [row1, row2] = db.prepare('SELECT id FROM messages ORDER BY id').all() as Array<{
+      id: number;
+    }>;
+
+    const results = getMessagesByIds(db, [row1!.id, row2!.id]);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.content).toBe('Alpha');
+    expect(results[1]?.content).toBe('Beta');
+  });
+
+  it('should return only the requested messages, not others', () => {
+    insertMessage(db, buildMessage({ content: 'Alpha' }));
+    insertMessage(db, buildMessage({ content: 'Beta' }));
+    const [row1] = db.prepare('SELECT id FROM messages ORDER BY id').all() as Array<{ id: number }>;
+
+    const results = getMessagesByIds(db, [row1!.id]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.content).toBe('Alpha');
+  });
+
+  it('should return an empty array when given an empty id list', () => {
+    expect(getMessagesByIds(db, [])).toEqual([]);
   });
 });
 

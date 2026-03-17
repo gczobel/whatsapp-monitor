@@ -30,6 +30,10 @@ export function buildLLMInput(params: LLMInputParams): string {
     parts.push(`New messages:\n${formatted}`);
   }
 
+  parts.push(
+    'Note: Only text messages are captured. Images, audio, and documents are not analyzed and may contain relevant information.',
+  );
+
   return parts.join('\n\n');
 }
 

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { AccountRoutesOptions } from './shared.js';
 import { parseAccountId } from './shared.js';
 import { getScanResultsForProfile } from '../../../db/results.js';
+import { getMessagesByIds } from '../../../db/messages.js';
 import { renderLayout, renderPageHeader } from '../../layout.js';
 import { escapeHtml, formatTimestamp } from '../../../utils.js';
 
@@ -32,13 +33,27 @@ export function createHistoryRouter(options: AccountRoutesOptions): Router {
       activeProfileId !== null ? getScanResultsForProfile(db, accountId, activeProfileId, 20) : [];
 
     const resultCards = results
-      .map(
-        (r) => `
+      .map((r) => {
+        const sourceMessages = getMessagesByIds(db, r.inputMessageIds);
+        const messagesHtml =
+          sourceMessages.length === 0
+            ? '<p class="text-slate-400 italic">Messages no longer in DB.</p>'
+            : sourceMessages
+                .map(
+                  (m) =>
+                    `<div><span class="text-slate-400">${escapeHtml(formatTimestamp(m.timestamp))}</span> <span class="font-semibold text-slate-700">${escapeHtml(m.sender)}</span>: <span class="text-slate-600 whitespace-pre-wrap">${escapeHtml(m.content)}</span></div>`,
+                )
+                .join('\n');
+        return `
         <div class="bg-white rounded-lg border border-slate-200 p-5">
           <p class="text-xs text-slate-400 mb-2">${escapeHtml(formatTimestamp(r.timestamp))} · ${r.inputMessageIds.length} messages processed</p>
           <div class="text-sm text-slate-800 whitespace-pre-wrap">${escapeHtml(r.output)}</div>
-        </div>`,
-      )
+          <details class="mt-3">
+            <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">${r.inputMessageIds.length} source messages</summary>
+            <div class="mt-2 space-y-1 text-xs font-mono bg-slate-50 rounded p-2 max-h-48 overflow-y-auto">${messagesHtml}</div>
+          </details>
+        </div>`;
+      })
       .join('\n');
 
     const content = `
