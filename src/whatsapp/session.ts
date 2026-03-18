@@ -14,49 +14,8 @@ import type { WhatsAppGroup, NewMessage, SessionStatus } from '../types.js';
 import { insertMessage } from '../db/messages.js';
 import { clearMonitoredGroup } from '../db/accounts.js';
 import { logPrefix } from '../utils.js';
-
-/**
- * Parses a raw Baileys message into a NewMessage, or returns null if the
- * message should be ignored (non-group, non-text, etc.).
- * Exported as a pure function so it can be unit-tested without Baileys.
- */
-export function parseIncomingMessage(
-  accountId: number,
-  msg: BaileysEventMap['messages.upsert']['messages'][number],
-): NewMessage | null {
-  const remoteJid = msg.key.remoteJid;
-  if (!remoteJid?.endsWith('@g.us')) return null;
-
-  let content = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
-  if (!content) return null;
-
-  // Inline quoted context so the LLM understands reply chains.
-  // Baileys delivers quoted messages via extendedTextMessage.contextInfo on replies.
-  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-  if (contextInfo?.quotedMessage) {
-    const quotedText =
-      contextInfo.quotedMessage.conversation ?? contextInfo.quotedMessage.extendedTextMessage?.text;
-    if (quotedText) {
-      // Strip the @s.whatsapp.net / @g.us suffix to get a readable sender identifier.
-      const quotedSender = contextInfo.participant?.replace(/@.*$/, '') ?? 'unknown';
-      content = `> ${quotedSender}: ${quotedText}\n${content}`;
-    }
-  }
-
-  // messageTimestamp can be a plain number or a protobuf Long object (history sync).
-  // Number() handles both; Long has .valueOf() that Number() uses.
-  const ts = Number(msg.messageTimestamp);
-  const timestamp = ts > 0 ? new Date(ts * 1000) : new Date();
-
-  return {
-    accountId,
-    groupId: remoteJid,
-    messageId: msg.key.id ?? '',
-    timestamp,
-    sender: msg.pushName ?? 'unknown',
-    content,
-  };
-}
+import { parseIncomingMessage } from './message-parser.js';
+import { HistorySyncTracker } from './history-sync.js';
 
 export interface SessionCallbacks {
   onQRCode: (qr: string) => void;
@@ -85,8 +44,7 @@ export class WhatsAppSession {
   private status: SessionStatus = 'unlinked';
   private socket: WASocket | null = null;
   private lastQRCode: string | null = null;
-  private syncing = false;
-  private syncedMessageCount = 0;
+  private historySync: HistorySyncTracker | null = null;
   // Cached after first fetch — the WA protocol version is stable within a session.
   private waVersion: [number, number, number] | null = null;
 
@@ -106,15 +64,14 @@ export class WhatsAppSession {
   }
 
   isSyncing(): boolean {
-    return this.syncing;
+    return this.historySync?.isSyncing() ?? false;
   }
 
   getSyncedMessageCount(): number {
-    return this.syncedMessageCount;
+    return this.historySync?.getSyncedMessageCount() ?? 0;
   }
 
   async connect(): Promise<void> {
-    let historySyncDone = false;
     const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
     // Fetch the current WhatsApp Web version once per session lifetime.
@@ -140,6 +97,13 @@ export class WhatsAppSession {
       shouldSyncHistoryMessage: (msg) => Number(msg.syncType) === 3, // 3 = RECENT per proto enum
     });
     this.socket = sock;
+
+    const historySync = new HistorySyncTracker(
+      this.accountId,
+      (msg) => this.handleIncomingMessage(msg),
+      this.callbacks.onHistorySyncComplete,
+    );
+    this.historySync = historySync;
 
     sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
       if (sock !== this.socket) return; // stale socket — superseded by a newer connect() call
@@ -195,19 +159,7 @@ export class WhatsAppSession {
         // Fallback: if no history sync completes within 30s (e.g. reconnect, not fresh link),
         // fire onHistorySyncComplete so the scheduler starts without waiting forever.
         setTimeout(() => {
-          if (!historySyncDone) {
-            historySyncDone = true;
-            this.syncing = false;
-            if (this.syncedMessageCount > 0) {
-              console.info(
-                logPrefix('whatsapp', 'INFO'),
-                `History sync timed out — ${this.syncedMessageCount} messages captured so far, starting scheduler`,
-              );
-            } else {
-              console.info(logPrefix('whatsapp', 'INFO'), 'No history sync — starting normally');
-            }
-            this.callbacks.onHistorySyncComplete?.();
-          }
+          historySync.completeFallback();
         }, 30_000);
       }
     });
@@ -227,42 +179,9 @@ export class WhatsAppSession {
       }
     });
 
-    // History sync: WhatsApp pushes recent message history from the phone on a fresh QR link.
-    // These arrive via messaging-history.set, not messages.upsert.
     sock.ev.on('messaging-history.set', (event: BaileysEventMap['messaging-history.set']) => {
       if (sock !== this.socket) return;
-
-      const total = event.messages.length;
-      let captured = 0;
-      for (const msg of event.messages) {
-        if (parseIncomingMessage(this.accountId, msg) !== null) captured++;
-        this.handleIncomingMessage(msg);
-      }
-      this.syncedMessageCount += captured;
-
-      console.info(
-        logPrefix('whatsapp', 'INFO'),
-        `History sync — batch: ${captured}/${total} captured, total: ${this.syncedMessageCount}, isLatest: ${String(event.isLatest)}`,
-      );
-
-      // Only track sync state until the first isLatest: true.
-      // Later batches (WhatsApp sometimes sends additional FULL chunks after RECENT)
-      // are still stored but don't hold up the scheduler or show "syncing" in the UI.
-      if (!historySyncDone) {
-        if (!this.syncing) {
-          this.syncing = true;
-          console.info(logPrefix('whatsapp', 'INFO'), 'History sync started');
-        }
-        if (event.isLatest) {
-          historySyncDone = true;
-          this.syncing = false;
-          console.info(
-            logPrefix('whatsapp', 'INFO'),
-            `History sync complete — ${this.syncedMessageCount} group text messages captured`,
-          );
-          this.callbacks.onHistorySyncComplete?.();
-        }
-      }
+      historySync.handleBatch(event);
     });
   }
 
