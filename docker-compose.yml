@@ -7,7 +7,6 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./sessions:/app/sessions
-    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - PORT=3000
       - LOG_LEVEL=info
