@@ -16,12 +16,16 @@ function makeProfile(overrides: Partial<ScanProfile> = {}): ScanProfile {
 function makeSession(sendMessageImpl?: () => Promise<void>): {
   sendMessage: ReturnType<typeof vi.fn>;
   getStatus: ReturnType<typeof vi.fn>;
+  reconnect: ReturnType<typeof vi.fn>;
+  waitForLinked: ReturnType<typeof vi.fn>;
 } {
   return {
     sendMessage: vi
       .fn()
       .mockImplementation(sendMessageImpl ?? ((): Promise<void> => Promise.resolve())),
     getStatus: vi.fn().mockReturnValue('linked'),
+    reconnect: vi.fn().mockResolvedValue(undefined),
+    waitForLinked: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -57,8 +61,28 @@ describe('deliverResult', () => {
     expect(text).toContain('my summary output');
   });
 
-  it('should throw a wrapped error when sendMessage rejects', async () => {
+  it('should reconnect and retry when the first send fails', async () => {
+    let callCount = 0;
+    const session = makeSession(() => {
+      callCount++;
+      if (callCount === 1) return Promise.reject(new Error('session broken'));
+      return Promise.resolve();
+    });
+    await deliverResult(session as never, '972501234567', makeProfile(), 'output');
+    expect(session.reconnect).toHaveBeenCalledOnce();
+    expect(session.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('should throw if still fails after reconnect', async () => {
     const session = makeSession(() => Promise.reject(new Error('socket closed')));
+    await expect(
+      deliverResult(session as never, '972501234567', makeProfile(), 'output'),
+    ).rejects.toThrow('Delivery failed');
+  });
+
+  it('should throw if session does not become linked after reconnect', async () => {
+    const session = makeSession(() => Promise.reject(new Error('broken')));
+    session.waitForLinked.mockResolvedValue(false);
     await expect(
       deliverResult(session as never, '972501234567', makeProfile(), 'output'),
     ).rejects.toThrow('Delivery failed');

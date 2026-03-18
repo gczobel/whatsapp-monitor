@@ -7,6 +7,9 @@ import { logPrefix } from '../utils.js';
  *
  * Saved Messages is the user's own JID: <phone_number>@s.whatsapp.net
  * Sending to yourself shows the message in the "Saved Messages" / "Me" chat.
+ *
+ * On first failure, forces a session reconnect and retries once. This recovers
+ * from broken Signal encryption sessions without requiring a manual restart.
  */
 export async function deliverResult(
   session: WhatsAppSession,
@@ -23,15 +26,32 @@ export async function deliverResult(
       logPrefix('delivery', 'INFO'),
       `Delivered result for profile "${profile.name}" to ${jid}`,
     );
-  } catch (error) {
-    console.error(
-      logPrefix('delivery', 'ERROR'),
-      `Failed to deliver result for profile "${profile.name}":`,
-      error,
+  } catch (firstError) {
+    console.warn(
+      logPrefix('delivery', 'WARN'),
+      `Delivery failed for profile "${profile.name}", reconnecting and retrying:`,
+      firstError,
     );
-    throw new Error(`Delivery failed for profile "${profile.name}": ${String(error)}`, {
-      cause: error,
-    });
+    try {
+      await session.reconnect();
+      const linked = await session.waitForLinked(30_000);
+      if (!linked)
+        throw new Error('Session did not become linked after reconnect', { cause: firstError });
+      await session.sendMessage(jid, text);
+      console.info(
+        logPrefix('delivery', 'INFO'),
+        `Delivered result for profile "${profile.name}" to ${jid} (after reconnect)`,
+      );
+    } catch (retryError) {
+      console.error(
+        logPrefix('delivery', 'ERROR'),
+        `Delivery retry failed for profile "${profile.name}":`,
+        retryError,
+      );
+      throw new Error(`Delivery failed for profile "${profile.name}": ${String(retryError)}`, {
+        cause: retryError,
+      });
+    }
   }
 }
 

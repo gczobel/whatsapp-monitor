@@ -59,4 +59,16 @@ describe('WhatsAppSession', () => {
     expect(session.isSyncing()).toBe(false);
     expect(session.getSyncedMessageCount()).toBe(0);
   });
+
+  it('waitForLinked should return false immediately when status never becomes linked', async () => {
+    const db = createTestDatabase();
+    const session = new WhatsAppSession(1, '/tmp', db, {
+      onQRCode: vi.fn(),
+      onStatusChange: vi.fn(),
+      onMessage: vi.fn(),
+    });
+    // Status is 'unlinked' — use a very short timeout so the test doesn't block
+    const result = await session.waitForLinked(100);
+    expect(result).toBe(false);
+  });
 });
