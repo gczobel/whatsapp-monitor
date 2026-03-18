@@ -6,7 +6,7 @@ import { getAccount } from '../../../db/accounts.js';
 import { getLastScanResult } from '../../../db/results.js';
 import { getMessageCount } from '../../../db/messages.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
-import { escapeHtml, formatTimestamp } from '../../../utils.js';
+import { escapeHtml, formatTimestamp, getNextCronRun } from '../../../utils.js';
 
 export function createDashboardRouter(options: AccountRoutesOptions): Router {
   const router = Router({ mergeParams: true });
@@ -43,6 +43,8 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
       .map((p) => {
         const last = getLastScanResult(db, accountId, p.id);
         const lastRunText = last ? formatTimestamp(last.timestamp) : 'Never';
+        const nextRun = getNextCronRun(p.cron);
+        const nextRunText = nextRun ? formatTimestamp(nextRun) : '—';
         const enabledBadge = p.isEnabled
           ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Enabled</span>'
           : '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">Disabled</span>';
@@ -53,7 +55,7 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
                 <span class="font-medium text-slate-900">${escapeHtml(p.name)}</span>
                 ${enabledBadge}
               </div>
-              <p class="text-xs text-slate-500 mt-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code> · Last run: ${escapeHtml(lastRunText)}</p>
+              <p class="text-xs text-slate-500 mt-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code> · Last run: ${escapeHtml(lastRunText)} · Next: ${escapeHtml(nextRunText)}</p>
             </div>
             <a href="/accounts/${accountId}/history?profile=${escapeHtml(p.id)}"
                class="text-sm text-green-600 hover:text-green-700 font-medium">View history →</a>

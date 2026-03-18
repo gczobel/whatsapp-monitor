@@ -3,7 +3,8 @@ import type { Database } from 'better-sqlite3';
 import type { LLMClient } from '../llm/interface.js';
 import type { ScanProfile } from '../types.js';
 import { runProfile } from './runner.js';
-import { logPrefix } from '../utils.js';
+import { getLastScanResult } from '../db/results.js';
+import { getPrevCronRun, logPrefix } from '../utils.js';
 
 export interface SchedulerOptions {
   db: Database;
@@ -19,24 +20,43 @@ export interface SchedulerOptions {
  * Registers cron jobs for all enabled profiles and returns a function to stop them.
  */
 export function startScheduler(profiles: ScanProfile[], options: SchedulerOptions): () => void {
-  const tasks = profiles
-    .filter((p) => p.isEnabled)
-    .map((profile) => {
+  const enabledProfiles = profiles.filter((p) => p.isEnabled);
+
+  // Catchup: if a profile's cron should have fired while the app was off, run it now.
+  for (const profile of enabledProfiles) {
+    const lastResult = getLastScanResult(options.db, options.accountId, profile.id);
+    const prevCron = getPrevCronRun(profile.cron);
+    if (prevCron && (!lastResult || lastResult.timestamp < prevCron)) {
       console.info(
         logPrefix('scheduler', 'INFO'),
-        `Scheduling profile "${profile.name}" — cron: ${profile.cron}`,
+        `Catchup: profile "${profile.name}" missed a run — executing now`,
       );
+      runProfile({ ...options, profile }).catch((error: unknown) => {
+        console.error(
+          logPrefix('scheduler', 'ERROR'),
+          `Catchup error for profile "${profile.name}":`,
+          error,
+        );
+      });
+    }
+  }
 
-      return cron.schedule(profile.cron, () => {
-        runProfile({ ...options, profile }).catch((error: unknown) => {
-          console.error(
-            logPrefix('scheduler', 'ERROR'),
-            `Unhandled error in profile "${profile.name}":`,
-            error,
-          );
-        });
+  const tasks = enabledProfiles.map((profile) => {
+    console.info(
+      logPrefix('scheduler', 'INFO'),
+      `Scheduling profile "${profile.name}" — cron: ${profile.cron}`,
+    );
+
+    return cron.schedule(profile.cron, () => {
+      runProfile({ ...options, profile }).catch((error: unknown) => {
+        console.error(
+          logPrefix('scheduler', 'ERROR'),
+          `Unhandled error in profile "${profile.name}":`,
+          error,
+        );
       });
     });
+  });
 
   return () => {
     tasks.forEach((task) => {

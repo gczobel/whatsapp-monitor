@@ -16,9 +16,19 @@ vi.mock('../../../src/scheduler/runner.js', () => ({
   runProfile: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock getLastScanResult to control catchup behaviour
+vi.mock('../../../src/db/results.js', () => ({
+  getLastScanResult: vi.fn().mockReturnValue(null),
+}));
+
 import cron from 'node-cron';
 import { startScheduler, type SchedulerOptions } from '../../../src/scheduler/index.js';
+import { runProfile } from '../../../src/scheduler/runner.js';
+import { getLastScanResult } from '../../../src/db/results.js';
 import { createTestDatabase, seedAccount } from '../../fixtures/index.js';
+
+const mockRunProfile = vi.mocked(runProfile);
+const mockGetLastScanResult = vi.mocked(getLastScanResult);
 
 const mockCronSchedule = vi.mocked(cron.schedule);
 
@@ -89,5 +99,27 @@ describe('startScheduler', () => {
   it('should not schedule anything when profiles list is empty', () => {
     startScheduler([], makeOptions());
     expect(mockCronSchedule).not.toHaveBeenCalled();
+  });
+
+  it('should run catchup for a profile that missed its last cron tick', () => {
+    // No previous scan result → the profile has never run → catchup should fire
+    mockGetLastScanResult.mockReturnValue(null);
+    startScheduler([makeProfile()], makeOptions());
+    expect(mockRunProfile).toHaveBeenCalledOnce();
+  });
+
+  it('should not run catchup when the last run is after the previous cron tick', () => {
+    // Last run is just now → no missed tick
+    mockGetLastScanResult.mockReturnValue({
+      id: 1,
+      accountId: 1,
+      profileId: 'daily',
+      timestamp: new Date(),
+      inputMessageIds: [],
+      previousSummary: null,
+      output: 'recent result',
+    });
+    startScheduler([makeProfile()], makeOptions());
+    expect(mockRunProfile).not.toHaveBeenCalled();
   });
 });

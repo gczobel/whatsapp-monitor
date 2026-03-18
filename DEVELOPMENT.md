@@ -63,6 +63,7 @@ express                   ← HTTP server
 ws                        ← WebSocket
 better-sqlite3            ← SQLite
 node-cron                 ← Cron scheduler
+cron-parser               ← Compute next/prev cron execution times (for UI + catchup)
 zod                       ← Runtime config/input validation only
 ```
 

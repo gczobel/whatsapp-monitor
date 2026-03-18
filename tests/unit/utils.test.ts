@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, formatTimestamp, logPrefix } from '../../src/utils.js';
+import {
+  escapeHtml,
+  formatTimestamp,
+  logPrefix,
+  getNextCronRun,
+  getPrevCronRun,
+} from '../../src/utils.js';
 
 describe('escapeHtml', () => {
   it('should escape ampersands', () => {
@@ -68,5 +74,29 @@ describe('logPrefix', () => {
   it('should format as [timestamp] [module] [LEVEL]', () => {
     const prefix = logPrefix('config', 'INFO');
     expect(prefix).toMatch(/^\[.*\] \[config\] \[INFO\]$/);
+  });
+});
+
+describe('getNextCronRun', () => {
+  it('should return a Date in the future for a valid cron expression', () => {
+    const next = getNextCronRun('0 9 * * *');
+    expect(next).toBeInstanceOf(Date);
+    expect(next!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('should return null for an invalid cron expression', () => {
+    expect(getNextCronRun('not a cron')).toBeNull();
+  });
+});
+
+describe('getPrevCronRun', () => {
+  it('should return a Date in the past for a valid cron expression', () => {
+    const prev = getPrevCronRun('0 9 * * *');
+    expect(prev).toBeInstanceOf(Date);
+    expect(prev!.getTime()).toBeLessThan(Date.now());
+  });
+
+  it('should return null for an invalid cron expression', () => {
+    expect(getPrevCronRun('not a cron')).toBeNull();
   });
 });
