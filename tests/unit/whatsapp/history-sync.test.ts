@@ -14,8 +14,12 @@ function makeGroupMsg(id: string): RawMsg {
   } as unknown as RawMsg;
 }
 
-function makeHistoryEvent(msgs: RawMsg[], isLatest: boolean): HistoryEvent {
-  return { messages: msgs, isLatest } as unknown as HistoryEvent;
+function makeHistoryEvent(
+  msgs: RawMsg[],
+  isLatest: boolean,
+  progress?: number | null,
+): HistoryEvent {
+  return { messages: msgs, isLatest, progress } as unknown as HistoryEvent;
 }
 
 describe('HistorySyncTracker', () => {
@@ -52,6 +56,23 @@ describe('HistorySyncTracker', () => {
     tracker.handleBatch(makeHistoryEvent([makeGroupMsg('b')], true));
     expect(tracker.isSyncing()).toBe(false);
     expect(onSyncComplete).toHaveBeenCalledOnce();
+  });
+
+  it('should NOT fire onSyncComplete when isLatest is true but progress is not 100 (Baileys bug)', () => {
+    const onSyncComplete = vi.fn();
+    const tracker = new HistorySyncTracker(1, vi.fn(), onSyncComplete);
+    tracker.handleBatch(makeHistoryEvent([makeGroupMsg('a')], true, 50)); // isLatest=true but only 50% done
+    expect(onSyncComplete).not.toHaveBeenCalled();
+    expect(tracker.isSyncing()).toBe(true);
+  });
+
+  it('should fire onSyncComplete when progress reaches 100 regardless of isLatest', () => {
+    const onSyncComplete = vi.fn();
+    const tracker = new HistorySyncTracker(1, vi.fn(), onSyncComplete);
+    tracker.handleBatch(makeHistoryEvent([makeGroupMsg('a')], false, 50));
+    tracker.handleBatch(makeHistoryEvent([makeGroupMsg('b')], false, 100)); // progress=100 → done
+    expect(onSyncComplete).toHaveBeenCalledOnce();
+    expect(tracker.isSyncing()).toBe(false);
   });
 
   it('should not fire onSyncComplete again for batches after isLatest', () => {

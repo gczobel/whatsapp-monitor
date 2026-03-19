@@ -42,7 +42,7 @@ export class HistorySyncTracker {
 
     console.info(
       logPrefix('whatsapp', 'INFO'),
-      `History sync — batch: ${captured}/${total} captured, total: ${this.syncedMessageCount}, isLatest: ${String(event.isLatest)}`,
+      `History sync — batch: ${captured}/${total} captured, total: ${this.syncedMessageCount}, progress: ${String(event.progress ?? 'n/a')}, isLatest: ${String(event.isLatest)}`,
     );
 
     if (!this.done) {
@@ -50,7 +50,12 @@ export class HistorySyncTracker {
         this.syncing = true;
         console.info(logPrefix('whatsapp', 'INFO'), 'History sync started');
       }
-      if (event.isLatest) {
+      // isLatest is a known Baileys bug — it fires on the FIRST batch, not the last.
+      // progress === 100 is the reliable completion signal (added in Baileys PR #1042).
+      // Fall back to isLatest only if progress is not provided by this Baileys version.
+      const isSyncDone =
+        event.progress === 100 || (event.progress == null && event.isLatest === true);
+      if (isSyncDone) {
         this.done = true;
         this.syncing = false;
         console.info(
