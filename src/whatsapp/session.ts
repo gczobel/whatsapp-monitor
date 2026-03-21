@@ -47,6 +47,8 @@ export class WhatsAppSession {
   private historySync: HistorySyncTracker | null = null;
   // Cached after first fetch — the WA protocol version is stable within a session.
   private waVersion: [number, number, number] | null = null;
+  // Reconnect once before the first delivery after startup to refresh Signal sessions.
+  private needsStartupReconnect = true;
 
   constructor(accountId: number, sessionsPath: string, db: Database, callbacks: SessionCallbacks) {
     this.accountId = accountId;
@@ -196,6 +198,17 @@ export class WhatsAppSession {
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
+    if (this.needsStartupReconnect && this.status === 'linked') {
+      this.needsStartupReconnect = false;
+      // Reconnect before the first delivery after startup to give WhatsApp a chance
+      // to re-negotiate Signal sessions. Without this, messages sent immediately after
+      // restart are often unreadable on the recipient's phone ("waiting for this message").
+      console.info(logPrefix('whatsapp', 'INFO'), 'Refreshing session before first delivery…');
+      await this.reconnect();
+      const linked = await this.waitForLinked(30_000);
+      if (!linked)
+        throw new Error('[whatsapp] Session did not become linked after startup reconnect');
+    }
     if (this.socket === null) {
       throw new Error('[whatsapp] Cannot send message — session is not connected');
     }

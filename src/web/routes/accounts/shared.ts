@@ -10,9 +10,11 @@ export interface AccountRoutesOptions {
   profilesConfig: ProfilesConfig;
   saveProfilesConfig: () => void;
   /** Immediately runs a profile by its index in the account's profiles array. */
-  triggerProfile: (profileIdx: number) => Promise<void>;
+  triggerProfile: (profileIdx: number, overrideSince?: Date) => Promise<void>;
   /** Called when the user selects a monitored group, so the scheduler can start. */
   onGroupSelected: () => void;
+  /** Last delivery error message per profile ID. Cleared on successful delivery. */
+  deliveryErrors: ReadonlyMap<string, string>;
 }
 
 /**

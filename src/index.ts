@@ -58,6 +58,10 @@ async function main(): Promise<void> {
 
   // Handles a completed profile run: broadcasts the alert and delivers via WhatsApp.
   // Defined here so it can be reused by both the scheduler and the "Run now" trigger.
+  // Tracks the last delivery error per profile — shown as a badge on the dashboard.
+  // Cleared on successful delivery so the badge disappears once things recover.
+  const deliveryErrors = new Map<string, string>();
+
   const handleResult = (output: string, profileId: string): void => {
     const profileConfig = profilesConfig.accounts
       .find((a) => a.id === primaryAccount.id)
@@ -67,14 +71,24 @@ async function main(): Promise<void> {
     broadcast(primaryAccount.id, 'alert', output);
 
     const profile: ScanProfile = { ...profileConfig, isEnabled: profileConfig.enabled };
-    deliverResult(session, primaryAccount.phoneNumber, profile, output).catch((error: unknown) => {
-      console.error(logPrefix('index', 'ERROR'), 'Delivery error:', error);
-    });
+    deliverResult(session, primaryAccount.phoneNumber, profile, output)
+      .then(() => {
+        deliveryErrors.delete(profileId);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        deliveryErrors.set(profileId, message);
+        const line = '='.repeat(60);
+        console.error(
+          logPrefix('index', 'ERROR'),
+          `\n${line}\n!! DELIVERY FAILED — profile: "${profile.name}"\n${message}\nCheck the dashboard for status.\n${line}`,
+        );
+      });
   };
 
   // Immediately runs a profile by its index in the account's profiles array.
   // Used by the "Run now" button in the web UI.
-  const triggerProfile = async (profileIdx: number): Promise<void> => {
+  const triggerProfile = async (profileIdx: number, overrideSince?: Date): Promise<void> => {
     const groupId = getAccount(db, primaryAccount.id)?.monitoredGroupId ?? null;
     if (groupId === null) throw new Error('No group selected');
 
@@ -93,6 +107,7 @@ async function main(): Promise<void> {
       skipEmptyDelivery: appConfig.skipEmptyDelivery,
       profile,
       onResult: handleResult,
+      ...(overrideSince !== undefined && { overrideSince }),
     });
   };
 
@@ -162,6 +177,7 @@ async function main(): Promise<void> {
     profilesConfig,
     triggerProfile,
     onGroupSelected: startSchedulerIfReady,
+    deliveryErrors,
   });
 
   // Wire the broadcast function now that webServer exists.

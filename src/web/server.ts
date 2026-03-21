@@ -16,9 +16,11 @@ export interface ServerOptions {
   session: WhatsAppSession;
   appConfig: AppConfig;
   profilesConfig: ProfilesConfig;
-  triggerProfile: (profileIdx: number) => Promise<void>;
+  triggerProfile: (profileIdx: number, overrideSince?: Date) => Promise<void>;
   /** Called when the user selects a monitored group, so the scheduler can start. */
   onGroupSelected: () => void;
+  /** Last delivery error message per profile ID. Cleared on successful delivery. */
+  deliveryErrors: ReadonlyMap<string, string>;
 }
 
 export interface WebServer {
@@ -58,6 +60,7 @@ export function createWebServer(options: ServerOptions): WebServer {
       saveProfilesConfig: () => saveProfilesConfig(options.configPath, options.profilesConfig),
       triggerProfile: options.triggerProfile,
       onGroupSelected: options.onGroupSelected,
+      deliveryErrors: options.deliveryErrors,
     }),
   );
 

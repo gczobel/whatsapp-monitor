@@ -48,12 +48,17 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
         const enabledBadge = p.isEnabled
           ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Enabled</span>'
           : '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">Disabled</span>';
+        const deliveryError = options.deliveryErrors.get(p.id);
+        const deliveryBadge = deliveryError
+          ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800" title="${escapeHtml(deliveryError)}">⚠ Delivery failed</span>`
+          : '';
         return `
-          <div class="bg-white rounded-lg border border-slate-200 p-4 flex items-center justify-between">
+          <div class="bg-white rounded-lg border ${deliveryError ? 'border-red-300' : 'border-slate-200'} p-4 flex items-center justify-between">
             <div>
               <div class="flex items-center gap-2">
                 <span class="font-medium text-slate-900">${escapeHtml(p.name)}</span>
                 ${enabledBadge}
+                ${deliveryBadge}
               </div>
               <p class="text-xs text-slate-500 mt-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code> · Last run: ${escapeHtml(lastRunText)} · Next: ${escapeHtml(nextRunText)}</p>
             </div>
