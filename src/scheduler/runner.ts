@@ -46,6 +46,8 @@ export interface RunProfileOptions {
   scanWindowDays: number;
   skipEmptyDelivery: boolean;
   onResult: (output: string, profileId: string) => void;
+  /** When set, overrides the normal "since last run" window with this exact cutoff date. */
+  overrideSince?: Date;
 }
 
 /**
@@ -61,10 +63,14 @@ export async function runProfile(options: RunProfileOptions): Promise<void> {
     options;
 
   const lastResult = getLastScanResult(db, accountId, profile.id);
-  const windowFloor = new Date(Date.now() - scanWindowDays * 24 * 60 * 60 * 1000);
-  const lastRunAt = lastResult?.timestamp ?? new Date(0);
-  // Use the more recent of the two: don't look further back than the scan window.
-  const since = lastRunAt > windowFloor ? lastRunAt : windowFloor;
+  const since =
+    options.overrideSince ??
+    ((): Date => {
+      const windowFloor = new Date(Date.now() - scanWindowDays * 24 * 60 * 60 * 1000);
+      const lastRunAt = lastResult?.timestamp ?? new Date(0);
+      // Use the more recent of the two: don't look further back than the scan window.
+      return lastRunAt > windowFloor ? lastRunAt : windowFloor;
+    })();
   const newMessages = getMessagesSince(db, accountId, groupId, since);
 
   if (newMessages.length === 0 && skipEmptyDelivery) {

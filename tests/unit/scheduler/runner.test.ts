@@ -129,6 +129,78 @@ describe('runProfile', () => {
     ).rejects.toThrow('Profile run failed');
   });
 
+  it('should use overrideSince as the message cutoff instead of last run timestamp', async () => {
+    // Insert a message 2 hours ago
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    insertMessage(db, buildMessage({ groupId: 'group@g.us', timestamp: twoHoursAgo }));
+
+    const llm = { complete: vi.fn().mockResolvedValue('output') };
+
+    // Run with overrideSince = 1 hour ago → message is outside window → no messages
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
+      onResult: vi.fn(),
+      overrideSince: oneHourAgo,
+    });
+    const [promptNoMsg] = llm.complete.mock.calls[0] as [string];
+    expect(promptNoMsg).toContain('no new messages');
+
+    // Run with overrideSince = 3 hours ago → message is inside window → 1 message
+    llm.complete.mockResolvedValue('output2');
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
+      onResult: vi.fn(),
+      overrideSince: threeHoursAgo,
+    });
+    const [promptWithMsg] = llm.complete.mock.calls[1] as [string];
+    expect(promptWithMsg).toContain('New messages');
+  });
+
+  it('should still load previous summary when overrideSince is set', async () => {
+    const llm = { complete: vi.fn().mockResolvedValue('First summary') };
+    // First run to store a summary
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
+      onResult: vi.fn(),
+    });
+
+    // Second run with overrideSince — should still include the previous summary
+    llm.complete.mockResolvedValue('Second summary');
+    await runProfile({
+      db,
+      llm,
+      profile: makeProfile(),
+      accountId: 1,
+      groupId: 'group@g.us',
+      scanWindowDays: 365,
+      skipEmptyDelivery: false,
+      onResult: vi.fn(),
+      overrideSince: new Date(0),
+    });
+    const [secondPrompt] = llm.complete.mock.calls[1] as [string];
+    expect(secondPrompt).toContain('First summary');
+  });
+
   it('should use the previous scan result as context for the next run', async () => {
     const llm = { complete: vi.fn().mockResolvedValue('First summary') };
     await runProfile({

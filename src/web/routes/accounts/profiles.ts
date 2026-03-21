@@ -38,10 +38,19 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
               <h3 class="font-semibold text-slate-900">${escapeHtml(p.name)}</h3>
               <div class="flex items-center gap-2">
                 <!-- Run Now -->
-                <form method="POST" action="/accounts/${accountId}/profiles/${idx}/run">
+                <form method="POST" action="/accounts/${accountId}/profiles/${idx}/run"
+                      class="flex items-center gap-1">
+                  <select name="hours"
+                          class="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    <option value="">Since last run</option>
+                    <option value="3">Last 3h</option>
+                    <option value="6">Last 6h</option>
+                    <option value="12">Last 12h</option>
+                    <option value="24">Last 24h</option>
+                  </select>
                   <button type="submit"
                           class="text-xs text-blue-600 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50 transition-colors">
-                    ▶ Run now
+                    ▶ Run
                   </button>
                 </form>
                 <!-- Edit -->
@@ -251,8 +260,11 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
   router.post('/profiles/:idx/run', (req, res) => {
     const accountId = parseAccountId(req);
     const idx = Number((req.params as Record<string, string>)['idx']);
+    const hoursStr = (req.body as Record<string, string | undefined>)['hours'];
+    const hours = hoursStr ? Number(hoursStr) : null;
+    const overrideSince = hours ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined;
 
-    options.triggerProfile(idx).catch((error: unknown) => {
+    options.triggerProfile(idx, overrideSince).catch((error: unknown) => {
       console.error('[web/profiles] Run now failed:', error);
     });
 
