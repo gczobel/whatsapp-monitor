@@ -3,7 +3,7 @@ import type { AccountRoutesOptions } from './shared.js';
 import { parseAccountId, toggleProfile } from './shared.js';
 import { getAccount } from '../../../db/accounts.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
-import { escapeHtml } from '../../../utils.js';
+import { escapeHtml, describeCron } from '../../../utils.js';
 
 export function createProfilesRouter(options: AccountRoutesOptions): Router {
   const router = Router({ mergeParams: true });
@@ -75,7 +75,7 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
                 </form>
               </div>
             </div>
-            <p class="text-xs text-slate-500 mb-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code></p>
+            <p class="text-xs text-slate-500 mb-1"><span title="${escapeHtml(p.cron)}">${escapeHtml(describeCron(p.cron))}</span></p>
             <p class="text-sm text-slate-600 mt-2 line-clamp-2">${escapeHtml(p.prompt)}</p>
           </div>
 

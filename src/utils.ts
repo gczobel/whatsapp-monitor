@@ -3,6 +3,7 @@
  */
 
 import { CronExpressionParser } from 'cron-parser';
+import cronstrue from 'cronstrue';
 
 /**
  * Escapes characters that have special meaning in HTML to prevent XSS.
@@ -58,5 +59,17 @@ export function getPrevCronRun(cronExpression: string): Date | null {
     return interval.prev().toDate();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Returns a human-readable description of a cron expression, e.g. "At 06:00 and 18:00".
+ * Falls back to the raw expression if parsing fails.
+ */
+export function describeCron(cron: string): string {
+  try {
+    return cronstrue.toString(cron, { use24HourTimeFormat: true, verbose: true });
+  } catch {
+    return cron;
   }
 }

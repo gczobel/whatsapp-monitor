@@ -6,7 +6,7 @@ import { getAccount } from '../../../db/accounts.js';
 import { getLastScanResult } from '../../../db/results.js';
 import { getMessageCount } from '../../../db/messages.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
-import { escapeHtml, formatTimestamp, getNextCronRun } from '../../../utils.js';
+import { escapeHtml, formatTimestamp, getNextCronRun, describeCron } from '../../../utils.js';
 
 export function createDashboardRouter(options: AccountRoutesOptions): Router {
   const router = Router({ mergeParams: true });
@@ -60,7 +60,7 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
                 ${enabledBadge}
                 ${deliveryBadge}
               </div>
-              <p class="text-xs text-slate-500 mt-1">Cron: <code class="font-mono bg-slate-50 px-1 rounded">${escapeHtml(p.cron)}</code> · Last run: ${escapeHtml(lastRunText)} · Next: ${escapeHtml(nextRunText)}</p>
+              <p class="text-xs text-slate-500 mt-1"><span title="${escapeHtml(p.cron)}">${escapeHtml(describeCron(p.cron))}</span> · Last run: ${escapeHtml(lastRunText)} · Next: ${escapeHtml(nextRunText)}</p>
             </div>
             <a href="/accounts/${accountId}/history?profile=${escapeHtml(p.id)}"
                class="text-sm text-green-600 hover:text-green-700 font-medium">View history →</a>

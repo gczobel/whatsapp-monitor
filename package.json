@@ -24,6 +24,7 @@
     "@whiskeysockets/baileys": "^6.7.16",
     "better-sqlite3": "^11.9.1",
     "cron-parser": "^5.5.0",
+    "cronstrue": "^3.14.0",
     "express": "^5.2.1",
     "node-cron": "^4.2.1",
     "qrcode": "^1.5.4",
