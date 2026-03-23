@@ -220,10 +220,18 @@ export class WhatsAppSession {
    * Used by the delivery layer to recover from broken encryption sessions.
    */
   async reconnect(): Promise<void> {
-    console.info(logPrefix('whatsapp', 'INFO'), 'Forcing session reconnect…');
+    console.info(
+      logPrefix('whatsapp', 'INFO'),
+      'Forcing session reconnect… (resetting status to connecting)',
+    );
     // Null first so the 'connection.update' close handler sees a stale socket
     // and does not spawn a second reconnect in parallel with ours.
     this.socket = null;
+    // Reset status so waitForLinked() polls until the NEW socket reaches 'linked'.
+    // Without this, status remains 'linked' from the old socket and waitForLinked()
+    // returns a false positive — sendMessage() then tries the not-yet-ready socket,
+    // throws, and sender.ts fires a second reconnect(), causing a two-socket race.
+    this.status = 'connecting';
     // The old socket will close itself. The stale-socket guard in the
     // 'connection.update' handler (sock !== this.socket) prevents its
     // close event from triggering another reconnect.
@@ -234,6 +242,12 @@ export class WhatsAppSession {
    * Resolves true once the session reaches 'linked', or false after timeoutMs.
    */
   async waitForLinked(timeoutMs = 30_000): Promise<boolean> {
+    if (this.status === 'linked') {
+      console.warn(
+        logPrefix('whatsapp', 'WARN'),
+        'waitForLinked called but session already linked',
+      );
+    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.status === 'linked') return true;
