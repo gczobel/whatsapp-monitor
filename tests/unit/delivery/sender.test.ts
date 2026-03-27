@@ -61,7 +61,7 @@ describe('deliverResult', () => {
     expect(text).toContain('my summary output');
   });
 
-  it('should reconnect and retry when the first send fails', async () => {
+  it('should wait for session and retry when the first send fails', async () => {
     let callCount = 0;
     const session = makeSession(() => {
       callCount++;
@@ -69,7 +69,7 @@ describe('deliverResult', () => {
       return Promise.resolve();
     });
     await deliverResult(session as never, '972501234567', makeProfile(), 'output');
-    expect(session.reconnect).toHaveBeenCalledOnce();
+    expect(session.reconnect).not.toHaveBeenCalled();
     expect(session.sendMessage).toHaveBeenCalledTimes(2);
   });
 

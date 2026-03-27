@@ -29,14 +29,13 @@ export async function deliverResult(
   } catch (firstError) {
     console.warn(
       logPrefix('delivery', 'WARN'),
-      `Delivery failed for profile "${profile.name}", reconnecting and retrying:`,
+      `Delivery failed for profile "${profile.name}", waiting for session and retrying:`,
       firstError,
     );
     try {
-      await session.reconnect();
       const linked = await session.waitForLinked(30_000);
       if (!linked)
-        throw new Error('Session did not become linked after reconnect', { cause: firstError });
+        throw new Error('Session did not become linked within 30s', { cause: firstError });
       await session.sendMessage(jid, text);
       console.info(
         logPrefix('delivery', 'INFO'),

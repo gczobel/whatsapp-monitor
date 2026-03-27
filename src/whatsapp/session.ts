@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { rm } from 'node:fs/promises';
+import { rm, readdir } from 'node:fs/promises';
 import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
@@ -47,8 +47,7 @@ export class WhatsAppSession {
   private historySync: HistorySyncTracker | null = null;
   // Cached after first fetch — the WA protocol version is stable within a session.
   private waVersion: [number, number, number] | null = null;
-  // Reconnect once before the first delivery after startup to refresh Signal sessions.
-  private needsStartupReconnect = true;
+  private sessionCorruptionHandled = false;
 
   constructor(accountId: number, sessionsPath: string, db: Database, callbacks: SessionCallbacks) {
     this.accountId = accountId;
@@ -85,12 +84,37 @@ export class WhatsAppSession {
       console.info(logPrefix('whatsapp', 'INFO'), `Using WA version: ${version.join('.')}`);
     }
 
+    // Custom logger: silences Baileys' verbose Pino output and intercepts decryption
+    // failures so we can auto-recover from corrupted Signal sessions.
+    const noop = (): void => {};
+    const baileysLogger = {
+      level: 'silent',
+      trace: noop,
+      debug: noop,
+      info: noop,
+      warn: noop,
+      fatal: noop,
+      error: (data: unknown, message?: string): void => {
+        const err = (data as { err?: { message?: string } } | undefined)?.err;
+        console.error(
+          logPrefix('whatsapp', 'ERROR'),
+          `[baileys] ${message ?? String(data)}`,
+          err?.message ? `(${err.message})` : '',
+        );
+        if (message === 'failed to decrypt message') {
+          this.handleSessionCorruption();
+        }
+      },
+      child: (): unknown => baileysLogger,
+    };
+
     // Capture socket identity so stale-socket events can be ignored (see guards below).
     // Without this, a close event from an old socket triggers another connect() call,
     // causing a rapid reconnect cascade.
     const sock = makeWASocket({
       auth: state,
       version: this.waVersion,
+      logger: baileysLogger as unknown as NonNullable<Parameters<typeof makeWASocket>[0]['logger']>,
       printQRInTerminal: false,
       // Request history sync so the phone pushes message history on a fresh QR link.
       // Only accept RECENT chunks to avoid pulling years of history.
@@ -198,17 +222,6 @@ export class WhatsAppSession {
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
-    if (this.needsStartupReconnect && this.status === 'linked') {
-      this.needsStartupReconnect = false;
-      // Reconnect before the first delivery after startup to give WhatsApp a chance
-      // to re-negotiate Signal sessions. Without this, messages sent immediately after
-      // restart are often unreadable on the recipient's phone ("waiting for this message").
-      console.info(logPrefix('whatsapp', 'INFO'), 'Refreshing session before first delivery…');
-      await this.reconnect();
-      const linked = await this.waitForLinked(30_000);
-      if (!linked)
-        throw new Error('[whatsapp] Session did not become linked after startup reconnect');
-    }
     if (this.socket === null) {
       throw new Error('[whatsapp] Cannot send message — session is not connected');
     }
@@ -242,12 +255,6 @@ export class WhatsAppSession {
    * Resolves true once the session reaches 'linked', or false after timeoutMs.
    */
   async waitForLinked(timeoutMs = 30_000): Promise<boolean> {
-    if (this.status === 'linked') {
-      console.warn(
-        logPrefix('whatsapp', 'WARN'),
-        'waitForLinked called but session already linked',
-      );
-    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.status === 'linked') return true;
@@ -269,6 +276,32 @@ export class WhatsAppSession {
     // Clear group selection — a different phone may not have the same groups.
     clearMonitoredGroup(this.db, this.accountId);
     this.setStatus('unlinked');
+  }
+
+  private handleSessionCorruption(): void {
+    if (this.sessionCorruptionHandled) return;
+    this.sessionCorruptionHandled = true;
+    console.error(
+      logPrefix('whatsapp', 'ERROR'),
+      'Signal session corruption detected — clearing sessions and restarting…',
+    );
+    readdir(this.sessionDir)
+      .then((files) =>
+        Promise.all(
+          files.filter((f) => f !== 'creds.json').map((f) => rm(join(this.sessionDir, f))),
+        ),
+      )
+      .then(() => {
+        console.info(
+          logPrefix('whatsapp', 'INFO'),
+          'Sessions cleared — exiting for container restart',
+        );
+        process.exit(1);
+      })
+      .catch((err) => {
+        console.error(logPrefix('whatsapp', 'ERROR'), 'Failed to clear sessions:', err);
+        process.exit(1);
+      });
   }
 
   private setStatus(status: SessionStatus): void {
