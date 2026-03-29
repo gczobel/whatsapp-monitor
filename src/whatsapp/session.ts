@@ -45,9 +45,11 @@ export class WhatsAppSession {
   private socket: WASocket | null = null;
   private lastQRCode: string | null = null;
   private historySync: HistorySyncTracker | null = null;
-  // Cached after first fetch — the WA protocol version is stable within a session.
+  // Cached after first fetch; reset to null on 405 so the next reconnect re-fetches.
   private waVersion: [number, number, number] | null = null;
   private sessionCorruptionHandled = false;
+  private reconnectAttempts = 0;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 5;
 
   constructor(accountId: number, sessionsPath: string, db: Database, callbacks: SessionCallbacks) {
     this.accountId = accountId;
@@ -170,14 +172,28 @@ export class WhatsAppSession {
         if (isLoggedOut) {
           this.setStatus('unlinked');
         } else {
-          // Don't change status during background reconnects — the session is still
-          // effectively linked until proven otherwise (e.g. QR is needed again).
-          console.info(logPrefix('whatsapp', 'INFO'), 'Reconnecting…');
-          void this.connect();
+          // 405 = WhatsApp rejected our protocol version — reset so next connect re-fetches.
+          if (statusCode === 405) {
+            this.waVersion = null;
+          }
+          this.reconnectAttempts++;
+          if (this.reconnectAttempts >= WhatsAppSession.MAX_RECONNECT_ATTEMPTS) {
+            console.error(
+              logPrefix('whatsapp', 'ERROR'),
+              `${this.reconnectAttempts} consecutive reconnect failures — clearing session and restarting…`,
+            );
+            this.handleSessionCorruption();
+          } else {
+            // Don't change status during background reconnects — the session is still
+            // effectively linked until proven otherwise (e.g. QR is needed again).
+            console.info(logPrefix('whatsapp', 'INFO'), 'Reconnecting…');
+            void this.connect();
+          }
         }
       }
 
       if (connection === 'open') {
+        this.reconnectAttempts = 0;
         this.lastQRCode = null;
         this.setStatus('linked');
         console.info(logPrefix('whatsapp', 'INFO'), `Session linked for account ${this.accountId}`);
