@@ -4,7 +4,6 @@ import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestWaWebVersion,
-  DisconnectReason,
   type WASocket,
   type ConnectionState,
   type BaileysEventMap,
@@ -51,6 +50,32 @@ export class WhatsAppSession {
   private reconnectAttempts = 0;
   private static readonly MAX_RECONNECT_ATTEMPTS = 5;
 
+  /**
+   * Decides what to do after a connection close based on the WA status code.
+   *
+   * - 'stop':            credentials revoked or session replaced — do not reconnect
+   * - 'corruption':      session files are broken — clear and restart
+   * - 'reconnect-count': genuine failure — reconnect and count toward the limit
+   * - 'reconnect-skip':  expected/transient close — reconnect but don't count
+   */
+  private static classifyDisconnect(
+    statusCode: number | undefined,
+  ): 'stop' | 'corruption' | 'reconnect-count' | 'reconnect-skip' {
+    switch (statusCode) {
+      case 401: // loggedOut — credentials revoked by the user's phone
+      case 440: // connectionReplaced — another session took over; reconnecting would loop
+        return 'stop';
+      case 500: // badSession — corrupted session file; reconnecting won't help
+      case 411: // multideviceMismatch — device identity mismatch; needs fresh creds
+        return 'corruption';
+      case 408: // QR expired (no scan) — normal, just re-show QR
+      case 515: // stream error — transient, common during handshake
+        return 'reconnect-skip';
+      default: // undefined (network drop), 405 (version rejected), other
+        return 'reconnect-count';
+    }
+  }
+
   constructor(accountId: number, sessionsPath: string, db: Database, callbacks: SessionCallbacks) {
     this.accountId = accountId;
     this.sessionDir = join(sessionsPath, String(accountId));
@@ -81,9 +106,19 @@ export class WhatsAppSession {
     // Without this, Baileys uses a hardcoded version that WhatsApp may reject
     // with statusCode 405 (Connection Failure) after protocol updates.
     if (this.waVersion === null) {
-      const { version } = await fetchLatestWaWebVersion({});
-      this.waVersion = version;
-      console.info(logPrefix('whatsapp', 'INFO'), `Using WA version: ${version.join('.')}`);
+      try {
+        const { version } = await fetchLatestWaWebVersion({});
+        this.waVersion = version;
+        console.info(logPrefix('whatsapp', 'INFO'), `Using WA version: ${version.join('.')}`);
+      } catch (err) {
+        console.error(
+          logPrefix('whatsapp', 'ERROR'),
+          'Failed to fetch WA version — retrying in 5s:',
+          err,
+        );
+        setTimeout(() => void this.connect(), 5_000);
+        return;
+      }
     }
 
     // Custom logger: silences Baileys' verbose Pino output and intercepts decryption
@@ -144,11 +179,15 @@ export class WhatsAppSession {
         this.setStatus('connecting');
         // Convert raw Baileys QR string to a PNG data URL server-side so the
         // browser can render it with a plain <img> tag — no client-side library needed.
-        void QRCode.toDataURL(qr, { margin: 1, width: 220 }).then((dataURL) => {
-          console.info(logPrefix('whatsapp', 'INFO'), 'QR code generated — waiting for scan');
-          this.lastQRCode = dataURL;
-          this.callbacks.onQRCode(dataURL);
-        });
+        void QRCode.toDataURL(qr, { margin: 1, width: 220 })
+          .then((dataURL) => {
+            console.info(logPrefix('whatsapp', 'INFO'), 'QR code generated — waiting for scan');
+            this.lastQRCode = dataURL;
+            this.callbacks.onQRCode(dataURL);
+          })
+          .catch((err: unknown) => {
+            console.error(logPrefix('whatsapp', 'ERROR'), 'Failed to generate QR data URL:', err);
+          });
       }
 
       if (connection === 'close') {
@@ -157,7 +196,6 @@ export class WhatsAppSession {
           | undefined;
         const statusCode = error?.output?.statusCode;
         const errorMessage = error?.message ?? 'unknown';
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
 
         console.info(
           logPrefix('whatsapp', 'INFO'),
@@ -169,14 +207,22 @@ export class WhatsAppSession {
         // stale-socket guard at the top and do not spawn additional reconnects.
         this.socket = null;
 
-        if (isLoggedOut) {
+        const action = WhatsAppSession.classifyDisconnect(statusCode);
+
+        if (action === 'stop') {
           this.setStatus('unlinked');
+        } else if (action === 'corruption') {
+          this.handleSessionCorruption();
         } else {
           // 405 = WhatsApp rejected our protocol version — reset so next connect re-fetches.
           if (statusCode === 405) {
             this.waVersion = null;
           }
-          this.reconnectAttempts++;
+          // Only count genuine failures toward the reconnect limit.
+          // 408 (QR expired) and 515 (stream error) are expected and transient.
+          if (action === 'reconnect-count') {
+            this.reconnectAttempts++;
+          }
           if (this.reconnectAttempts >= WhatsAppSession.MAX_RECONNECT_ATTEMPTS) {
             console.error(
               logPrefix('whatsapp', 'ERROR'),
@@ -285,7 +331,15 @@ export class WhatsAppSession {
       // (which checks sock !== this.socket) ignores the close and does not reconnect.
       const sock = this.socket;
       this.socket = null;
-      await sock.logout();
+      try {
+        await sock.logout();
+      } catch (err) {
+        console.warn(
+          logPrefix('whatsapp', 'WARN'),
+          'logout() failed (proceeding with cleanup):',
+          err,
+        );
+      }
     }
     // Wipe session files so the next connect() starts fresh and generates a QR.
     await rm(this.sessionDir, { recursive: true, force: true });

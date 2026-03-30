@@ -4,12 +4,23 @@ import { WhatsAppSession } from '../../../src/whatsapp/session.js';
 import type { SessionCallbacks } from '../../../src/whatsapp/session.js';
 import { createTestDatabase, seedAccount } from '../../fixtures/index.js';
 
+// ── fs mock (for handleSessionCorruption assertions) ─────────────────────────
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readdir: vi.fn().mockResolvedValue([]),
+    rm: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 // ── Baileys mock ──────────────────────────────────────────────────────────────
 // vi.hoisted() runs before vi.mock() factories so variables can be referenced.
 
-const { mockSocket, mockSaveCreds, handlers } = vi.hoisted(() => {
+const { mockSocket, mockSaveCreds, mockFetchVersion, handlers } = vi.hoisted(() => {
   const handlers: Record<string, (data: unknown) => void> = {};
   const mockSaveCreds = vi.fn().mockResolvedValue(undefined);
+  const mockFetchVersion = vi.fn().mockResolvedValue({ version: [2, 3000, 0] });
   const mockSocket = {
     ev: {
       on: vi.fn((event: string, handler: (data: unknown) => void): void => {
@@ -22,7 +33,7 @@ const { mockSocket, mockSaveCreds, handlers } = vi.hoisted(() => {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined),
   };
-  return { mockSocket, mockSaveCreds, handlers };
+  return { mockSocket, mockSaveCreds, mockFetchVersion, handlers };
 });
 
 vi.mock('@whiskeysockets/baileys', () => ({
@@ -31,15 +42,16 @@ vi.mock('@whiskeysockets/baileys', () => ({
     state: {},
     saveCreds: mockSaveCreds,
   }),
-  fetchLatestWaWebVersion: vi.fn().mockResolvedValue({ version: [2, 3000, 0] }),
-  DisconnectReason: { loggedOut: 401 },
+  fetchLatestWaWebVersion: mockFetchVersion,
+  DisconnectReason: {},
 }));
 
-// qrcode converts the raw Baileys QR string to a PNG data URL server-side.
+const { mockQRToDataURL } = vi.hoisted(() => ({
+  mockQRToDataURL: vi.fn().mockResolvedValue('data:image/png;base64,mockQRdata'),
+}));
+
 vi.mock('qrcode', () => ({
-  default: {
-    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,mockQRdata'),
-  },
+  default: { toDataURL: mockQRToDataURL },
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -271,5 +283,122 @@ describe('WhatsAppSession.disconnect() — connected', () => {
     expect(mockSocket.logout).toHaveBeenCalledOnce();
     expect(session.getStatus()).toBe('unlinked');
     expect(callbacks.onStatusChange).toHaveBeenCalledWith('unlinked');
+  });
+
+  it('should complete cleanup even when logout() throws (Bug 7)', async () => {
+    mockSocket.logout.mockRejectedValueOnce(new Error('socket already closed'));
+    const callbacks = makeCallbacks();
+    const session = await makeConnectedSession(db, callbacks);
+    await session.disconnect();
+    expect(session.getStatus()).toBe('unlinked');
+    expect(callbacks.onStatusChange).toHaveBeenCalledWith('unlinked');
+  });
+});
+
+// ── reconnect counter — status-code-aware (Bugs 3, 8) ───────────────────────
+
+describe('WhatsAppSession reconnect counter', () => {
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+  });
+
+  function fireClose(statusCode: number | undefined): void {
+    fire('connection.update', {
+      connection: 'close',
+      lastDisconnect:
+        statusCode !== undefined ? { error: { output: { statusCode } } } : { error: {} },
+    });
+  }
+
+  // Each fireClose triggers void this.connect() which is async. We must flush
+  // microtasks between fires so the reconnect completes and the next close event
+  // is processed by the new socket's handler (not blocked by the stale-socket guard).
+  async function fireCloseAndFlush(statusCode: number | undefined): Promise<void> {
+    fireClose(statusCode);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it('should NOT trigger session corruption after 5+ QR timeouts (Bug 3)', async () => {
+    await makeConnectedSession(db, makeCallbacks());
+    for (let i = 0; i < 7; i++) {
+      await fireCloseAndFlush(408);
+    }
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('should NOT trigger session corruption after 5+ stream errors (515)', async () => {
+    await makeConnectedSession(db, makeCallbacks());
+    for (let i = 0; i < 7; i++) {
+      await fireCloseAndFlush(515);
+    }
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('should treat 440 (connectionReplaced) as logout — no reconnect', async () => {
+    const callbacks = makeCallbacks();
+    const session = await makeConnectedSession(db, callbacks);
+    fireClose(440);
+    expect(session.getStatus()).toBe('unlinked');
+    expect(callbacks.onStatusChange).toHaveBeenCalledWith('unlinked');
+  });
+
+  it('should treat 500 (badSession) as corruption — trigger cleanup directly', async () => {
+    await makeConnectedSession(db, makeCallbacks());
+    fireClose(500);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should reach linked after 4x 408 + 1x 515 + open (Bug 8)', async () => {
+    const callbacks = makeCallbacks();
+    const session = await makeConnectedSession(db, callbacks);
+    for (let i = 0; i < 4; i++) {
+      await fireCloseAndFlush(408);
+    }
+    await fireCloseAndFlush(515);
+    fire('connection.update', { connection: 'open' });
+    expect(session.getStatus()).toBe('linked');
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('should trigger corruption after 5 genuine network failures', async () => {
+    await makeConnectedSession(db, makeCallbacks());
+    for (let i = 0; i < 5; i++) {
+      await fireCloseAndFlush(undefined);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});
+
+// ── error handling (Bugs 4, 5) ───────────────────────────────────────────────
+
+describe('WhatsAppSession error handling', () => {
+  it('should retry connect after 5s when fetchLatestWaWebVersion throws (Bug 4)', async () => {
+    vi.useFakeTimers();
+    mockFetchVersion.mockRejectedValueOnce(new Error('CDN unreachable'));
+    const callbacks = makeCallbacks();
+    const session = new WhatsAppSession(1, '/tmp', db, callbacks as SessionCallbacks);
+    await session.connect();
+    // connect() should have returned early without creating a socket
+    expect(session.getStatus()).toBe('unlinked');
+    // Advance past the 5s retry timer
+    mockFetchVersion.mockResolvedValueOnce({ version: [2, 3000, 0] });
+    await vi.advanceTimersByTimeAsync(5_000);
+    // After retry, session should have connected (socket events registered)
+    expect(mockSocket.ev.on).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('should log error but not crash when QRCode.toDataURL rejects (Bug 5)', async () => {
+    mockQRToDataURL.mockRejectedValueOnce(new Error('QR generation failed'));
+    const callbacks = makeCallbacks();
+    await makeConnectedSession(db, callbacks);
+    fire('connection.update', { qr: 'test-qr-string' });
+    await Promise.resolve();
+    // onQRCode should NOT have been called since toDataURL failed
+    expect(callbacks.onQRCode).not.toHaveBeenCalled();
   });
 });
