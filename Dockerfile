@@ -16,7 +16,7 @@ RUN npm run build
 # ── Runner stage ──────────────────────────────────────────────────────────────
 FROM node:22.14-alpine AS runner
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && apk add --no-cache bash
 
 WORKDIR /app
 
