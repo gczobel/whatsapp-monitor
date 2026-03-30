@@ -81,20 +81,18 @@ describe('WhatsAppSession', () => {
   });
 
   describe('handleSessionCorruption()', () => {
-    let exitSpy: ReturnType<typeof vi.spyOn>;
-
     beforeEach(() => {
       vi.clearAllMocks();
-      exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
       vi.mocked(rm).mockResolvedValue(undefined);
     });
 
-    it('should delete all session files except creds.json then exit', async () => {
+    it('should delete all session files except creds.json then reconnect (not exit)', async () => {
       vi.mocked(readdir).mockResolvedValue([
         'creds.json',
         'session-abc.json',
         'pre-key-1.json',
       ] as never);
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
       const db = createTestDatabase();
       const session = new WhatsAppSession(1, '/tmp/sessions', db, {
         onQRCode: vi.fn(),
@@ -110,10 +108,11 @@ describe('WhatsAppSession', () => {
       expect(vi.mocked(rm)).not.toHaveBeenCalledWith(
         expect.stringContaining('creds.json') as string,
       );
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      // In-process recovery: must NOT exit
+      expect(exitSpy).not.toHaveBeenCalled();
     });
 
-    it('should be idempotent — second call does nothing', async () => {
+    it('should be idempotent — concurrent second call does nothing', async () => {
       vi.mocked(readdir).mockResolvedValue(['session-abc.json'] as never);
       const db = createTestDatabase();
       const session = new WhatsAppSession(1, '/tmp/sessions', db, {
@@ -128,11 +127,11 @@ describe('WhatsAppSession', () => {
       ).handleSessionCorruption.bind(session);
 
       callCorruption();
-      callCorruption(); // second call must be a no-op
+      callCorruption(); // second call while first is in-flight must be a no-op
       await new Promise((resolve) => setTimeout(resolve, 0));
 
+      // readdir (and the cleanup) should only have run once
       expect(vi.mocked(readdir)).toHaveBeenCalledOnce();
-      expect(exitSpy).toHaveBeenCalledOnce();
     });
   });
 });

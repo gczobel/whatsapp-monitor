@@ -121,8 +121,12 @@ export class WhatsAppSession {
       }
     }
 
-    // Custom logger: silences Baileys' verbose Pino output and intercepts decryption
-    // failures so we can auto-recover from corrupted Signal sessions.
+    // Custom logger: silences Baileys' verbose Pino output.
+    // Decrypt failures are intentionally NOT acted on here. They are transient:
+    // WhatsApp pushes buffered group messages immediately on reconnect, before the
+    // bot's Signal sessions have renegotiated with remote devices. These errors
+    // resolve on their own within seconds. Acting on them (e.g. clearing sessions)
+    // only restarts the process and interrupts the renegotiation that was in progress.
     const noop = (): void => {};
     const baileysLogger = {
       level: 'silent',
@@ -139,7 +143,10 @@ export class WhatsAppSession {
           err?.message ? `(${err.message})` : '',
         );
         if (message === 'failed to decrypt message') {
-          this.handleSessionCorruption();
+          console.warn(
+            logPrefix('whatsapp', 'WARN'),
+            'Decrypt error ignored — transient during Signal session renegotiation',
+          );
         }
       },
       child: (): unknown => baileysLogger,
@@ -353,24 +360,32 @@ export class WhatsAppSession {
     this.sessionCorruptionHandled = true;
     console.error(
       logPrefix('whatsapp', 'ERROR'),
-      'Signal session corruption detected — clearing sessions and restarting…',
+      'Session corruption detected — clearing session files and reconnecting in-process…',
     );
     readdir(this.sessionDir)
-      .then((files) =>
-        Promise.all(
-          files.filter((f) => f !== 'creds.json').map((f) => rm(join(this.sessionDir, f))),
-        ),
-      )
+      .then((files) => {
+        const toDelete = files.filter((f) => f !== 'creds.json');
+        console.info(
+          logPrefix('whatsapp', 'INFO'),
+          `Deleting ${toDelete.length} session file(s), keeping creds.json…`,
+        );
+        return Promise.all(toDelete.map((f) => rm(join(this.sessionDir, f))));
+      })
       .then(() => {
         console.info(
           logPrefix('whatsapp', 'INFO'),
-          'Sessions cleared — exiting for container restart',
+          'Session files cleared — resetting and reconnecting…',
         );
-        process.exit(1);
+        this.sessionCorruptionHandled = false;
+        this.reconnectAttempts = 0;
+        void this.connect();
       })
       .catch((err) => {
-        console.error(logPrefix('whatsapp', 'ERROR'), 'Failed to clear sessions:', err);
-        process.exit(1);
+        console.error(logPrefix('whatsapp', 'ERROR'), 'Failed to clear session files:', err);
+        // Attempt reconnect anyway — WA may still recover without clean state.
+        this.sessionCorruptionHandled = false;
+        this.reconnectAttempts = 0;
+        void this.connect();
       });
   }
 

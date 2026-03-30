@@ -344,11 +344,14 @@ describe('WhatsAppSession reconnect counter', () => {
     expect(callbacks.onStatusChange).toHaveBeenCalledWith('unlinked');
   });
 
-  it('should treat 500 (badSession) as corruption — trigger cleanup directly', async () => {
+  it('should treat 500 (badSession) as corruption — trigger cleanup and reconnect (not exit)', async () => {
     await makeConnectedSession(db, makeCallbacks());
+    const connectCallsBefore = mockSocket.ev.on.mock.calls.length;
     fireClose(500);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy).not.toHaveBeenCalled();
+    // Reconnect: a new socket registers its event handlers
+    expect(mockSocket.ev.on.mock.calls.length).toBeGreaterThan(connectCallsBefore);
   });
 
   it('should reach linked after 4x 408 + 1x 515 + open (Bug 8)', async () => {
@@ -363,13 +366,16 @@ describe('WhatsAppSession reconnect counter', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('should trigger corruption after 5 genuine network failures', async () => {
+  it('should trigger corruption after 5 genuine network failures then reconnect (not exit)', async () => {
     await makeConnectedSession(db, makeCallbacks());
+    const connectCallsBefore = mockSocket.ev.on.mock.calls.length;
     for (let i = 0; i < 5; i++) {
       await fireCloseAndFlush(undefined);
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy).not.toHaveBeenCalled();
+    // Corruption soft-reset calls connect() again — new socket registers event handlers
+    expect(mockSocket.ev.on.mock.calls.length).toBeGreaterThan(connectCallsBefore);
   });
 });
 
