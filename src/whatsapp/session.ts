@@ -165,6 +165,12 @@ export class WhatsAppSession {
       // On reconnects this has no effect — WhatsApp skips the sync and Baileys times out.
       syncFullHistory: true,
       shouldSyncHistoryMessage: (msg) => Number(msg.syncType) === 3, // 3 = RECENT per proto enum
+      // Disable automatic retry requests for undecryptable messages.
+      // Baileys default (5) causes the sender's phone to re-deliver failed messages
+      // every few seconds, spamming the group with retries. As a monitoring bot we
+      // accept silently skipping messages we can't decrypt — they are stale history
+      // from before Signal sessions renegotiated and cannot be recovered anyway.
+      maxMsgRetryCount: 0,
     });
     this.socket = sock;
 
@@ -364,10 +370,14 @@ export class WhatsAppSession {
     );
     readdir(this.sessionDir)
       .then((files) => {
-        const toDelete = files.filter((f) => f !== 'creds.json');
+        // Only delete per-contact Signal session files — these are what gets corrupted
+        // by a double-socket race. Pre-keys, sender-keys, app-state-sync, and creds
+        // are NOT corrupted and must be preserved; deleting pre-key-*.json causes
+        // "Invalid PreKey ID" errors on the next restart.
+        const toDelete = files.filter((f) => f.startsWith('session-'));
         console.info(
           logPrefix('whatsapp', 'INFO'),
-          `Deleting ${toDelete.length} session file(s), keeping creds.json…`,
+          `Deleting ${toDelete.length} Signal session file(s) (keeping pre-keys and creds)…`,
         );
         return Promise.all(toDelete.map((f) => rm(join(this.sessionDir, f))));
       })

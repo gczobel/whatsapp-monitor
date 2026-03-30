@@ -86,11 +86,14 @@ describe('WhatsAppSession', () => {
       vi.mocked(rm).mockResolvedValue(undefined);
     });
 
-    it('should delete all session files except creds.json then reconnect (not exit)', async () => {
+    it('should delete only session-*.json files, keeping pre-keys and creds', async () => {
       vi.mocked(readdir).mockResolvedValue([
         'creds.json',
         'session-abc.json',
+        'session-xyz.json',
         'pre-key-1.json',
+        'sender-key-group1.json',
+        'app-state-sync-key-abc.json',
       ] as never);
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
       const db = createTestDatabase();
@@ -99,14 +102,24 @@ describe('WhatsAppSession', () => {
         onStatusChange: vi.fn(),
         onMessage: vi.fn(),
       });
-      // Access private method via type escape
       (session as unknown as { handleSessionCorruption: () => void }).handleSessionCorruption();
-      await new Promise((resolve) => setTimeout(resolve, 0)); // flush promise queue
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
+      // Only session-*.json deleted
       expect(vi.mocked(rm)).toHaveBeenCalledWith('/tmp/sessions/1/session-abc.json');
-      expect(vi.mocked(rm)).toHaveBeenCalledWith('/tmp/sessions/1/pre-key-1.json');
+      expect(vi.mocked(rm)).toHaveBeenCalledWith('/tmp/sessions/1/session-xyz.json');
+      // All other file types preserved
       expect(vi.mocked(rm)).not.toHaveBeenCalledWith(
         expect.stringContaining('creds.json') as string,
+      );
+      expect(vi.mocked(rm)).not.toHaveBeenCalledWith(
+        expect.stringContaining('pre-key-1.json') as string,
+      );
+      expect(vi.mocked(rm)).not.toHaveBeenCalledWith(
+        expect.stringContaining('sender-key') as string,
+      );
+      expect(vi.mocked(rm)).not.toHaveBeenCalledWith(
+        expect.stringContaining('app-state-sync') as string,
       );
       // In-process recovery: must NOT exit
       expect(exitSpy).not.toHaveBeenCalled();
