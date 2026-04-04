@@ -23,6 +23,8 @@ const scanProfileSchema = z.object({
   name: z.string().min(1),
   prompt: z.string().min(1),
   cron: z.string().min(1),
+  /** Optional: when set, the scheduler also fires a heartbeat status ping on this schedule. */
+  heartbeatCron: z.string().optional(),
   enabled: z.boolean(),
 });
 

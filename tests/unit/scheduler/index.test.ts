@@ -16,18 +16,26 @@ vi.mock('../../../src/scheduler/runner.js', () => ({
   runProfile: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock heartbeat runner
+vi.mock('../../../src/scheduler/heartbeat.js', () => ({
+  runHeartbeat: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock getLastScanResult to control catchup behaviour
 vi.mock('../../../src/db/results.js', () => ({
   getLastScanResult: vi.fn().mockReturnValue(null),
+  getScanStatsSince: vi.fn().mockReturnValue([]),
 }));
 
 import cron from 'node-cron';
 import { startScheduler, type SchedulerOptions } from '../../../src/scheduler/index.js';
 import { runProfile } from '../../../src/scheduler/runner.js';
+import { runHeartbeat } from '../../../src/scheduler/heartbeat.js';
 import { getLastScanResult } from '../../../src/db/results.js';
 import { createTestDatabase, seedAccount } from '../../fixtures/index.js';
 
 const mockRunProfile = vi.mocked(runProfile);
+const mockRunHeartbeat = vi.mocked(runHeartbeat);
 const mockGetLastScanResult = vi.mocked(getLastScanResult);
 
 const mockCronSchedule = vi.mocked(cron.schedule);
@@ -120,6 +128,35 @@ describe('startScheduler', () => {
       output: 'recent result',
     });
     startScheduler([makeProfile()], makeOptions());
+    expect(mockRunProfile).not.toHaveBeenCalled();
+  });
+
+  it('should register an extra cron job when profile has heartbeatCron', () => {
+    const profile = makeProfile({ cron: '*/10 * * * *', heartbeatCron: '0 8 * * *' });
+    startScheduler([profile], makeOptions());
+    expect(mockCronSchedule).toHaveBeenCalledTimes(2);
+    expect(mockCronSchedule).toHaveBeenCalledWith('*/10 * * * *', expect.any(Function));
+    expect(mockCronSchedule).toHaveBeenCalledWith('0 8 * * *', expect.any(Function));
+  });
+
+  it('should call runHeartbeat (not runProfile) from the heartbeat cron callback', () => {
+    // Suppress catchup so runProfile count stays clean
+    mockGetLastScanResult.mockReturnValue({
+      id: 1,
+      accountId: 1,
+      profileId: 'daily',
+      timestamp: new Date(),
+      inputMessageIds: [],
+      previousSummary: null,
+      output: 'recent',
+    });
+    const profile = makeProfile({ cron: '*/10 * * * *', heartbeatCron: '0 8 * * *' });
+    startScheduler([profile], makeOptions());
+    // Find and invoke the heartbeat cron callback specifically
+    const heartbeatCall = mockCronSchedule.mock.calls.find(([c]) => c === '0 8 * * *');
+    const heartbeatCallback = (heartbeatCall as [string, () => void])[1];
+    heartbeatCallback();
+    expect(mockRunHeartbeat).toHaveBeenCalledOnce();
     expect(mockRunProfile).not.toHaveBeenCalled();
   });
 });

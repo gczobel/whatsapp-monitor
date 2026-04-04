@@ -59,6 +59,33 @@ export function getLastScanResult(
   return row !== undefined ? rowToScanResult(row) : null;
 }
 
+export interface ProfileScanStat {
+  profileId: string;
+  count: number;
+  lastRun: Date;
+}
+
+/**
+ * Returns per-profile scan counts and last-run times for all profiles that ran
+ * since the given cutoff. Used by the heartbeat runner to build its status message.
+ */
+export function getScanStatsSince(db: Database, accountId: number, since: Date): ProfileScanStat[] {
+  const rows = db
+    .prepare<[number, string], { profile_id: string; count: number; last_run: string }>(
+      `SELECT profile_id, COUNT(*) as count, MAX(timestamp) as last_run
+       FROM scan_results
+       WHERE account_id = ? AND timestamp > ?
+       GROUP BY profile_id
+       ORDER BY last_run DESC`,
+    )
+    .all(accountId, since.toISOString());
+  return rows.map((r) => ({
+    profileId: r.profile_id,
+    count: r.count,
+    lastRun: new Date(r.last_run),
+  }));
+}
+
 export function getScanResultsForProfile(
   db: Database,
   accountId: number,

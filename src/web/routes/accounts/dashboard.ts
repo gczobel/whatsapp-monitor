@@ -34,6 +34,7 @@ export function createDashboardRouter(options: AccountRoutesOptions): Router {
       prompt: p.prompt,
       cron: p.cron,
       isEnabled: p.enabled,
+      ...(p.heartbeatCron !== undefined && { heartbeatCron: p.heartbeatCron }),
     }));
 
     const status = session.getStatus();

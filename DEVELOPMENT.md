@@ -454,7 +454,7 @@ chore: update Baileys to 6.x
 
 ### Keep Modules Small and Focused
 
-Each module in `src/` has one responsibility. If a file exceeds 200 lines, it is doing too much — split it.
+Each module in `src/` has one responsibility. Use line count as a signal, not a rule: a file that is hard to scan in one read is probably doing too much. Prefer splitting when a natural seam exists (separate concerns, reusable logic), not just to hit a number.
 
 ---
 

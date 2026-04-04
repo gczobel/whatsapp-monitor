@@ -16,7 +16,6 @@ function makeProfile(overrides: Partial<ScanProfile> = {}): ScanProfile {
 function makeSession(sendMessageImpl?: () => Promise<void>): {
   sendMessage: ReturnType<typeof vi.fn>;
   getStatus: ReturnType<typeof vi.fn>;
-  reconnect: ReturnType<typeof vi.fn>;
   waitForLinked: ReturnType<typeof vi.fn>;
 } {
   return {
@@ -24,7 +23,6 @@ function makeSession(sendMessageImpl?: () => Promise<void>): {
       .fn()
       .mockImplementation(sendMessageImpl ?? ((): Promise<void> => Promise.resolve())),
     getStatus: vi.fn().mockReturnValue('linked'),
-    reconnect: vi.fn().mockResolvedValue(undefined),
     waitForLinked: vi.fn().mockResolvedValue(true),
   };
 }
@@ -69,7 +67,6 @@ describe('deliverResult', () => {
       return Promise.resolve();
     });
     await deliverResult(session as never, '972501234567', makeProfile(), 'output');
-    expect(session.reconnect).not.toHaveBeenCalled();
     expect(session.sendMessage).toHaveBeenCalledTimes(2);
   });
 

@@ -5,6 +5,56 @@ import { getAccount } from '../../../db/accounts.js';
 import { renderLayout, renderPageHeader, renderError } from '../../layout.js';
 import { escapeHtml, describeCron } from '../../../utils.js';
 
+/** Renders the scan schedule + optional heartbeat schedule cron pickers for a form. */
+function renderCronSection(): string {
+  return `
+    <div class="space-y-2">
+      <label class="block text-sm font-medium text-slate-700">Scan schedule</label>
+      <div class="flex flex-wrap gap-2">
+        <select x-model="preset" @change="applyPreset()"
+                class="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          <option value="custom">Custom cron</option>
+          <option value="every10">Every 10 minutes</option>
+          <option value="every30">Every 30 minutes</option>
+          <option value="hourly">Hourly</option>
+          <option value="daily8">Daily at 08:00</option>
+          <option value="daily18">Daily at 18:00</option>
+          <option value="weekly">Weekly (Monday 08:00)</option>
+        </select>
+        <input type="text" name="cron" x-model="cron" required
+               class="flex-1 min-w-[160px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+               placeholder="*/10 * * * *" />
+      </div>
+      <p class="text-xs text-slate-400">Standard 5-field cron expression (minute hour day month weekday)</p>
+    </div>
+
+    <!-- Heartbeat schedule (optional) -->
+    <div class="border-t border-slate-100 pt-4">
+      <label class="flex items-center gap-2 text-sm font-medium text-slate-700 mb-3 cursor-pointer">
+        <input type="checkbox" x-model="heartbeatEnabled" class="rounded" />
+        📡 Daily status ping (heartbeat)
+      </label>
+      <div x-show="heartbeatEnabled" class="space-y-2">
+        <div class="flex flex-wrap gap-2">
+          <select x-model="heartbeatPreset" @change="applyHeartbeatPreset()"
+                  class="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+            <option value="custom">Custom cron</option>
+            <option value="daily7">Daily at 07:00</option>
+            <option value="daily8">Daily at 08:00</option>
+            <option value="daily9">Daily at 09:00</option>
+            <option value="daily18">Daily at 18:00</option>
+          </select>
+          <input type="text" x-model="heartbeatCron"
+                 class="flex-1 min-w-[160px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                 placeholder="0 8 * * *" />
+        </div>
+        <p class="text-xs text-slate-400">Sends "bot alive" + scan stats to your Saved Messages on this schedule.</p>
+      </div>
+      <!-- Single hidden input submits the effective value: cron when enabled, empty when disabled -->
+      <input type="hidden" name="heartbeatCron" :value="heartbeatEnabled ? heartbeatCron : ''" />
+    </div>`;
+}
+
 export function createProfilesRouter(options: AccountRoutesOptions): Router {
   const router = Router({ mergeParams: true });
   const { profilesConfig } = options;
@@ -30,7 +80,8 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
     const profileCards = profiles
       .map(
         (p, idx) => `
-        <div class="bg-white rounded-lg border border-slate-200 p-5" x-data="{ editing: false }">
+        <div class="bg-white rounded-lg border border-slate-200 p-5"
+             x-data="profileCard('${escapeHtml(p.cron)}', ${p.heartbeatCron ? `'${escapeHtml(p.heartbeatCron)}'` : 'null'})">
 
           <!-- ── View mode ── -->
           <div x-show="!editing">
@@ -75,7 +126,10 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
                 </form>
               </div>
             </div>
-            <p class="text-xs text-slate-500 mb-1"><span title="${escapeHtml(p.cron)}">${escapeHtml(describeCron(p.cron))}</span></p>
+            <p class="text-xs text-slate-500 mb-1">
+              <span title="${escapeHtml(p.cron)}">${escapeHtml(describeCron(p.cron))}</span>
+              ${p.heartbeatCron ? `<span class="ml-2 text-slate-400">· 📡 ${escapeHtml(describeCron(p.heartbeatCron))}</span>` : ''}
+            </p>
             <p class="text-sm text-slate-600 mt-2 line-clamp-2">${escapeHtml(p.prompt)}</p>
           </div>
 
@@ -93,25 +147,7 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
                 <textarea name="prompt" rows="4" required
                           class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">${escapeHtml(p.prompt)}</textarea>
               </div>
-              <div x-data="cronBuilder('${escapeHtml(p.cron)}')" class="space-y-2">
-                <label class="block text-sm font-medium text-slate-700">Schedule</label>
-                <div class="flex flex-wrap gap-2">
-                  <select x-model="preset" @change="applyPreset()"
-                          class="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                    <option value="custom">Custom cron</option>
-                    <option value="every10">Every 10 minutes</option>
-                    <option value="every30">Every 30 minutes</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="daily8">Daily at 08:00</option>
-                    <option value="daily18">Daily at 18:00</option>
-                    <option value="weekly">Weekly (Monday 08:00)</option>
-                  </select>
-                  <input type="text" name="cron" x-model="cron" required
-                         class="flex-1 min-w-[160px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
-                         placeholder="*/10 * * * *" />
-                </div>
-                <p class="text-xs text-slate-400">Standard 5-field cron expression (minute hour day month weekday)</p>
-              </div>
+              ${renderCronSection()}
               <div class="flex gap-2">
                 <button type="submit"
                         class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition-colors">
@@ -137,7 +173,8 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
 
       <div class="bg-white rounded-lg border border-slate-200 p-5">
         <h3 class="font-semibold text-slate-900 mb-4">Add Profile</h3>
-        <form method="POST" action="/accounts/${accountId}/profiles" class="space-y-4">
+        <form method="POST" action="/accounts/${accountId}/profiles" class="space-y-4"
+              x-data="profileCard('*/10 * * * *', null)">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
             <input type="text" name="name" required placeholder="e.g. Urgent Scan"
@@ -149,25 +186,7 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
                       placeholder="Describe what the LLM should do with the messages…"
                       class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"></textarea>
           </div>
-          <div x-data="cronBuilder()" class="space-y-2">
-            <label class="block text-sm font-medium text-slate-700">Schedule</label>
-            <div class="flex flex-wrap gap-2">
-              <select x-model="preset" @change="applyPreset()"
-                      class="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                <option value="custom">Custom cron</option>
-                <option value="every10">Every 10 minutes</option>
-                <option value="every30">Every 30 minutes</option>
-                <option value="hourly">Hourly</option>
-                <option value="daily8">Daily at 08:00</option>
-                <option value="daily18">Daily at 18:00</option>
-                <option value="weekly">Weekly (Monday 08:00)</option>
-              </select>
-              <input type="text" name="cron" x-model="cron" required
-                     class="flex-1 min-w-[160px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
-                     placeholder="*/10 * * * *" />
-            </div>
-            <p class="text-xs text-slate-400">Standard 5-field cron expression (minute hour day month weekday)</p>
-          </div>
+          ${renderCronSection()}
           <button type="submit"
                   class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition-colors">
             Add Profile
@@ -176,25 +195,47 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
       </div>
 
       <script>
-        function cronBuilder(initialCron) {
+        // Single Alpine.js component per card — owns editing state + both cron fields.
+        function profileCard(initialCron, initialHeartbeatCron) {
           const presets = {
-            every10:  '*/10 * * * *',
-            every30:  '*/30 * * * *',
-            hourly:   '0 * * * *',
-            daily8:   '0 8 * * *',
-            daily18:  '0 18 * * *',
-            weekly:   '0 8 * * 1',
+            every10: '*/10 * * * *',
+            every30: '*/30 * * * *',
+            hourly:  '0 * * * *',
+            daily8:  '0 8 * * *',
+            daily18: '0 18 * * *',
+            weekly:  '0 8 * * 1',
           };
-          const init = initialCron ?? '*/10 * * * *';
-          const matched = Object.entries(presets).find(([, v]) => v === init);
+          const heartbeatPresets = {
+            daily7:  '0 7 * * *',
+            daily8:  '0 8 * * *',
+            daily9:  '0 9 * * *',
+            daily18: '0 18 * * *',
+          };
+          const matchPreset = (c, map) => {
+            const found = Object.entries(map).find(([, v]) => v === c);
+            return found ? found[0] : 'custom';
+          };
+          const initCron = initialCron ?? '*/10 * * * *';
+          const initHb   = initialHeartbeatCron || '';
           return {
-            preset: matched ? matched[0] : 'custom',
-            cron: init,
+            editing: false,
+            // Scan cron
+            preset: matchPreset(initCron, presets),
+            cron: initCron,
             presets: Object.assign({ custom: null }, presets),
             applyPreset() {
               const v = this.presets[this.preset];
               if (v) this.cron = v;
-            }
+            },
+            // Heartbeat cron
+            heartbeatEnabled: initHb !== '',
+            heartbeatPreset: matchPreset(initHb || '0 8 * * *', heartbeatPresets),
+            heartbeatCron: initHb || '0 8 * * *',
+            heartbeatPresets: Object.assign({ custom: null }, heartbeatPresets),
+            applyHeartbeatPreset() {
+              const v = this.heartbeatPresets[this.heartbeatPreset];
+              if (v) this.heartbeatCron = v;
+            },
           };
         }
       </script>`;
@@ -211,7 +252,12 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
 
   router.post('/profiles', (req, res) => {
     const accountId = parseAccountId(req);
-    const { name, prompt, cron } = req.body as { name: string; prompt: string; cron: string };
+    const { name, prompt, cron, heartbeatCron } = req.body as {
+      name: string;
+      prompt: string;
+      cron: string;
+      heartbeatCron?: string;
+    };
 
     if (typeof name !== 'string' || typeof prompt !== 'string' || typeof cron !== 'string') {
       res.status(400).send(renderError('Missing required fields'));
@@ -228,7 +274,17 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
       return;
     }
 
-    accountConfig.profiles.push({ id, name, prompt, cron, enabled: true });
+    const entry: (typeof accountConfig.profiles)[number] = {
+      id,
+      name,
+      prompt,
+      cron,
+      enabled: true,
+    };
+    if (typeof heartbeatCron === 'string' && heartbeatCron !== '') {
+      entry.heartbeatCron = heartbeatCron;
+    }
+    accountConfig.profiles.push(entry);
     options.saveProfilesConfig();
     res.redirect(`/accounts/${accountId}/profiles`);
   });
@@ -236,7 +292,12 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
   router.post('/profiles/:idx/edit', (req, res) => {
     const accountId = parseAccountId(req);
     const idx = Number((req.params as Record<string, string>)['idx']);
-    const { name, prompt, cron } = req.body as { name: string; prompt: string; cron: string };
+    const { name, prompt, cron, heartbeatCron } = req.body as {
+      name: string;
+      prompt: string;
+      cron: string;
+      heartbeatCron?: string;
+    };
 
     if (typeof name !== 'string' || typeof prompt !== 'string' || typeof cron !== 'string') {
       res.status(400).send(renderError('Missing required fields'));
@@ -253,6 +314,11 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
     profile.name = name;
     profile.prompt = prompt;
     profile.cron = cron;
+    if (typeof heartbeatCron === 'string' && heartbeatCron !== '') {
+      profile.heartbeatCron = heartbeatCron;
+    } else {
+      delete profile.heartbeatCron;
+    }
     options.saveProfilesConfig();
     res.redirect(`/accounts/${accountId}/profiles`);
   });

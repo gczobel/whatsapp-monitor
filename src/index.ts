@@ -70,7 +70,16 @@ async function main(): Promise<void> {
 
     broadcast(primaryAccount.id, 'alert', output);
 
-    const profile: ScanProfile = { ...profileConfig, isEnabled: profileConfig.enabled };
+    const profile: ScanProfile = {
+      id: profileConfig.id,
+      name: profileConfig.name,
+      prompt: profileConfig.prompt,
+      cron: profileConfig.cron,
+      isEnabled: profileConfig.enabled,
+      ...(profileConfig.heartbeatCron !== undefined && {
+        heartbeatCron: profileConfig.heartbeatCron,
+      }),
+    };
     deliverResult(session, primaryAccount.phoneNumber, profile, output)
       .then(() => {
         deliveryErrors.delete(profileId);
@@ -97,7 +106,16 @@ async function main(): Promise<void> {
     ];
     if (!profileConfig) throw new Error(`Profile index ${profileIdx} not found`);
 
-    const profile: ScanProfile = { ...profileConfig, isEnabled: profileConfig.enabled };
+    const profile: ScanProfile = {
+      id: profileConfig.id,
+      name: profileConfig.name,
+      prompt: profileConfig.prompt,
+      cron: profileConfig.cron,
+      isEnabled: profileConfig.enabled,
+      ...(profileConfig.heartbeatCron !== undefined && {
+        heartbeatCron: profileConfig.heartbeatCron,
+      }),
+    };
     await runProfile({
       db,
       llm,
@@ -133,6 +151,7 @@ async function main(): Promise<void> {
         prompt: p.prompt,
         cron: p.cron,
         isEnabled: p.enabled,
+        ...(p.heartbeatCron !== undefined && { heartbeatCron: p.heartbeatCron }),
       }));
 
     stopScheduler = startScheduler(profiles, {

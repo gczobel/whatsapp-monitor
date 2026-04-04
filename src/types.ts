@@ -30,6 +30,8 @@ export interface ScanProfile {
   name: string;
   prompt: string;
   cron: string;
+  /** Optional schedule for a daily status ping. When set, the scheduler fires a heartbeat on this cron in addition to the scan. */
+  heartbeatCron?: string;
   isEnabled: boolean;
 }
 
@@ -52,4 +54,4 @@ export interface WhatsAppGroup {
   participantCount: number;
 }
 
-export type SessionStatus = 'linked' | 'unlinked' | 'expired' | 'connecting';
+export type SessionStatus = 'linked' | 'unlinked' | 'connecting';

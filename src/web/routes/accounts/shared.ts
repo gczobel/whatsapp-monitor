@@ -30,7 +30,6 @@ export function renderStatusBadge(status: string): string {
   const styles: Record<string, string> = {
     linked: 'bg-green-100 text-green-800',
     unlinked: 'bg-slate-100 text-slate-700',
-    expired: 'bg-amber-100 text-amber-800',
     connecting: 'bg-blue-100 text-blue-800',
   };
   const style = styles[status] ?? 'bg-slate-100 text-slate-700';
