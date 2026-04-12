@@ -2,24 +2,23 @@
   "accounts": [
     {
       "id": 1,
-      "displayName": "Gustavo",
-      "phoneNumber": "972505948708",
+      "displayName": "Test Account",
+      "phoneNumber": "972501234567",
       "profiles": [
         {
-          "id": "urgent-scan",
-          "name": "Urgent Scan",
-          "prompt": "You are monitoring an Israeli building WhatsApp group (Hebrew). Review the messages and identify anything urgent: water/power/fire/security/elevator/thief . Return a short summary or 'nothing urgent'.",
-          "cron": "0 8 * * *",
-          "enabled": true,
-          "heartbeatCron": "5 8 * * *"
+          "id": "daily-summary",
+          "name": "Daily Summary",
+          "prompt": "Summarize the messages in this group",
+          "cron": "0 9 * * *",
+          "heartbeatCron": "0 8 * * *",
+          "enabled": true
         },
         {
-          "id": "daily-digest",
-          "name": "Daily Digest",
-          "prompt": "Summarize today's building group messages in Hebrew into 3-5 bullet points in English. Focus on: noise schedules, meetings, important notices. Ignore chatter.",
-          "cron": "0 8 * * *",
-          "enabled": true,
-          "heartbeatCron": "5 8 * * *"
+          "id": "weekly-summary",
+          "name": "Weekly Summary",
+          "prompt": "Summarize the messages in this group",
+          "cron": "0 9 * * 1",
+          "enabled": true
         }
       ]
     }
