@@ -117,5 +117,15 @@ export async function runProfile(options: RunProfileOptions): Promise<void> {
   });
 
   markMessagesProcessed(db, messageIds, profile.id);
+
+  // Skip delivery if this is a "nothing urgent" response and skipEmptyDelivery is enabled
+  if (skipEmptyDelivery && output.trim() === 'nothing urgent') {
+    console.info(
+      logPrefix('scheduler', 'INFO'),
+      `Profile "${profile.name}" — "nothing urgent" response, skipping delivery`,
+    );
+    return;
+  }
+
   onResult(output, profile.id);
 }
