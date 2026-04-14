@@ -51,7 +51,9 @@ export type ProfilesConfig = z.infer<typeof profilesConfigSchema>;
 // ── Loaders ────────────────────────────────────────────────────────────────
 
 export function loadAppConfig(configPath: string): AppConfig {
-  const raw = readFileSync(join(configPath, 'app.json'), 'utf-8');
+  const filePath = join(configPath, 'app.json');
+  console.info('[config] Loading app config from:', filePath);
+  const raw = readFileSync(filePath, 'utf-8');
   const result = appConfigSchema.safeParse(JSON.parse(raw) as unknown);
   if (!result.success) {
     console.error('[config] Invalid app.json:', result.error.format());
