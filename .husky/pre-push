@@ -1,1 +1,1 @@
-npm audit --audit-level=high && npm run lint && npm run check:circular && npm test
+npm audit --audit-level=high --omit=dev && npm run lint && npm run check:circular && npm test

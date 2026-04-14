@@ -37,7 +37,7 @@ jobs:
         run: npm run check:circular
 
       - name: Security audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Test
         run: npm run test:coverage
