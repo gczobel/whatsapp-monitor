@@ -19,5 +19,8 @@
 2. `npm run format:check` - Ensure code formatting is correct
 3. `npm test` - Run all unit tests
 4. `npm run check:circular` - Check for circular dependencies
+5. `npm audit` - Check for security vulnerabilities (CRITICAL: commit `package-lock.json` after any `npm audit fix`)
 
-This ensures code quality, proper formatting, test coverage, and dependency health before committing changes.
+This ensures code quality, proper formatting, test coverage, dependency health, and security before committing changes.
+
+> **Note:** The pre-push hook also runs `npm audit`. If you run `npm audit fix`, always stage and commit the updated `package-lock.json` before pushing — otherwise CI will fail.

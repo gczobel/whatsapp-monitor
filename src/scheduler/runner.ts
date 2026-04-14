@@ -118,8 +118,9 @@ export async function runProfile(options: RunProfileOptions): Promise<void> {
 
   markMessagesProcessed(db, messageIds, profile.id);
 
-  // Skip delivery if this is a "nothing urgent" response and skipEmptyDelivery is enabled
-  if (skipEmptyDelivery && output.trim() === 'nothing urgent') {
+  // Skip delivery if this is a "nothing urgent" response and skipEmptyDelivery is enabled.
+  // Match case-insensitively and as a prefix since the LLM may append an explanation.
+  if (skipEmptyDelivery && output.trim().toLowerCase().startsWith('nothing urgent')) {
     console.info(
       logPrefix('scheduler', 'INFO'),
       `Profile "${profile.name}" — "nothing urgent" response, skipping delivery`,
