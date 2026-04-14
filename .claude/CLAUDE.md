@@ -60,3 +60,26 @@ npm run lint && npm run check:circular && npm test   # must all pass before comm
 npm run build                                         # tsc compile
 npm run format                                        # Prettier
 ```
+
+## Commit conventions (Conventional Commits + semantic-release)
+
+Every commit message MUST follow the format: `<type>: <description>` (commitlint enforces this at commit time).
+
+| Type | Version bump | When to use |
+|------|-------------|-------------|
+| `fix:` | patch | Bug fixed — behavior was wrong, now correct |
+| `feat:` | minor | New user-visible capability added |
+| `feat!:` or `BREAKING CHANGE:` footer | major | Incompatible change to existing behavior |
+| `chore:` | none | Dependency update, config tweak, tooling |
+| `ci:` | none | CI/CD workflow change |
+| `refactor:` | none | Code restructure, no behavior change |
+| `test:` | none | Adding or fixing tests only |
+| `docs:` | none | Documentation only |
+| `perf:` | none | Performance improvement |
+
+**Decision guide — fix vs feat:**
+- Wrong behavior corrected → `fix:`
+- New thing a user can now do that they couldn't before → `feat:`
+- Internal change invisible to users → `refactor:` or `chore:`
+
+semantic-release runs on every push to main and automatically creates a git tag, CHANGELOG entry, and GitHub release based on these prefixes.
