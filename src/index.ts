@@ -41,6 +41,10 @@ async function main(): Promise<void> {
   }
 
   // ── 4. Create LLM client ───────────────────────────────────────────────────
+  console.info(
+    logPrefix('index', 'INFO'),
+    `App version: ${process.env.APP_VERSION ?? 'development'}`,
+  );
   const llm = createLLMClient(appConfig.llm);
   console.info(
     logPrefix('index', 'INFO'),
