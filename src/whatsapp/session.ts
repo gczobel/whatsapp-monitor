@@ -136,18 +136,18 @@ export class WhatsAppSession {
       warn: noop,
       fatal: noop,
       error: (data: unknown, message?: string): void => {
-        const err = (data as { err?: { message?: string } } | undefined)?.err;
+        // Suppress known-harmless transient errors that fire on every reconnect:
+        // - "failed to decrypt message": Signal renegotiation noise, zero actionable signal.
+        // - "init queries" bad-request: Baileys sends init queries before session is ready.
+        if (message === 'failed to decrypt message') return;
+        const errMsg = (data as { err?: { message?: string } } | undefined)?.err?.message ?? '';
+        if (message?.includes('init queries') && errMsg.includes('bad-request')) return;
+
         console.error(
           logPrefix('whatsapp', 'ERROR'),
           `[baileys] ${message ?? String(data)}`,
-          err?.message ? `(${err.message})` : '',
+          errMsg ? `(${errMsg})` : '',
         );
-        if (message === 'failed to decrypt message') {
-          console.warn(
-            logPrefix('whatsapp', 'WARN'),
-            'Decrypt error ignored — transient during Signal session renegotiation',
-          );
-        }
       },
       child: (): unknown => baileysLogger,
     };
