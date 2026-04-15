@@ -98,6 +98,8 @@ export function createProfilesRouter(options: AccountRoutesOptions): Router {
                     <option value="6">Last 6h</option>
                     <option value="12">Last 12h</option>
                     <option value="24">Last 24h</option>
+                    <option value="168">Last 7 days</option>
+                    <option value="336">Last 14 days</option>
                   </select>
                   <button type="submit"
                           class="text-xs text-blue-600 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50 transition-colors">
