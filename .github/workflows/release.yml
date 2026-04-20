@@ -57,7 +57,7 @@ jobs:
       - name: Docker metadata
         if: steps.release.outputs.new_tag != ''
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/gczobel/whatsappgroup
           tags: |
