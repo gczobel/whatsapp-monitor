@@ -21,7 +21,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^6.7.24",
     "better-sqlite3": "^11.9.1",
     "cron-parser": "^5.5.0",
     "cronstrue": "^3.14.0",
